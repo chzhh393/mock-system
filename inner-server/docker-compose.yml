@@ -1,12 +1,12 @@
 # 机器 B（内网）Docker Compose 配置
 #
 # 使用前请替换以下占位符：
-#   __MACHINE_A_IP__ : 机器A（外网）的 IP 地址
-#   __MACHINE_B_IP__ : 本机（机器B）的 IP 地址
+#   192.168.123.66 : 机器A（外网）的 IP 地址
+#   192.168.123.65 : 本机（机器B）的 IP 地址
 #
 # 替换命令：
-#   sed -i '' "s/__MACHINE_A_IP__/192.168.1.100/g" docker-compose.yml
-#   sed -i '' "s/__MACHINE_B_IP__/192.168.1.101/g" docker-compose.yml
+#   sed -i '' "s/192.168.123.66/192.168.1.100/g" docker-compose.yml
+#   sed -i '' "s/192.168.123.65/192.168.1.101/g" docker-compose.yml
 
 version: '3.8'
 
@@ -51,7 +51,7 @@ services:
       - canal.instance.filter.regex=inner_gateway\\.inner_request
       - canal.mq.topic=inner_request_binlog
       - canal.serverMode=kafka
-      - kafka.bootstrap.servers=__MACHINE_A_IP__:9092
+      - kafka.bootstrap.servers=192.168.123.66:9092
     volumes:
       - ./config/canal:/home/admin/canal-server/conf/example
       - canal_logs:/home/admin/canal-server/logs
@@ -69,13 +69,13 @@ services:
   #     - "8006:8006"
   #   environment:
   #     # 连接【外网】MySQL（机器A）
-  #     - OUTER_DB_HOST=__MACHINE_A_IP__
+  #     - OUTER_DB_HOST=192.168.123.66
   #     - OUTER_DB_PORT=3306
   #     - OUTER_DB_NAME=outer_gateway
   #     - OUTER_DB_USER=root
   #     - OUTER_DB_PASSWORD=root123
   #     # 连接【外网】Kafka（机器A）
-  #     - KAFKA_BOOTSTRAP=__MACHINE_A_IP__:9092
+  #     - KAFKA_BOOTSTRAP=192.168.123.66:9092
   #     - KAFKA_TOPIC=inner_request_binlog
   #     # 本机目标服务
   #     - TARGET_SERVICE_URL=http://target-service:8017
