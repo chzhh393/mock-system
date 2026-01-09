@@ -1,0 +1,102 @@
+# 机器 B（内网）Docker Compose 配置
+#
+# 使用前请替换以下占位符：
+#   __MACHINE_A_IP__ : 机器A（外网）的 IP 地址
+#   __MACHINE_B_IP__ : 本机（机器B）的 IP 地址
+#
+# 替换命令：
+#   sed -i '' "s/__MACHINE_A_IP__/192.168.1.100/g" docker-compose.yml
+#   sed -i '' "s/__MACHINE_B_IP__/192.168.1.101/g" docker-compose.yml
+
+version: '3.8'
+
+services:
+  # ==================== 数据库 ====================
+  mysql:
+    image: mysql:8.0
+    container_name: mysql-inner
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: inner_gateway
+    volumes:
+      - ./config/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - mysql_data:/var/lib/mysql
+    command: >
+      --server-id=2
+      --log-bin=mysql-bin
+      --binlog-format=ROW
+      --binlog-row-image=FULL
+      --default-authentication-plugin=mysql_native_password
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot123"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - inner_net
+
+  # ==================== Canal ====================
+  # Canal 监听内网 MySQL 的请求表，推送到机器A的 Kafka
+  canal:
+    image: canal/canal-server:v1.1.7
+    container_name: canal-inner
+    ports:
+      - "11111:11111"
+    environment:
+      - canal.instance.master.address=mysql:3306
+      - canal.instance.dbUsername=root
+      - canal.instance.dbPassword=root123
+      - canal.instance.filter.regex=inner_gateway\\.inner_request
+      - canal.mq.topic=inner_request_binlog
+      - canal.serverMode=kafka
+      - kafka.bootstrap.servers=__MACHINE_A_IP__:9092
+    volumes:
+      - ./config/canal:/home/admin/canal-server/conf/example
+      - canal_logs:/home/admin/canal-server/logs
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - inner_net
+
+  # ==================== 应用服务（待开发）====================
+  # scp0006:
+  #   build: ./scp0006
+  #   container_name: scp0006
+  #   ports:
+  #     - "8006:8006"
+  #   environment:
+  #     # 连接【外网】MySQL（机器A）
+  #     - OUTER_DB_HOST=__MACHINE_A_IP__
+  #     - OUTER_DB_PORT=3306
+  #     - OUTER_DB_NAME=outer_gateway
+  #     - OUTER_DB_USER=root
+  #     - OUTER_DB_PASSWORD=root123
+  #     # 连接【外网】Kafka（机器A）
+  #     - KAFKA_BOOTSTRAP=__MACHINE_A_IP__:9092
+  #     - KAFKA_TOPIC=inner_request_binlog
+  #     # 本机目标服务
+  #     - TARGET_SERVICE_URL=http://target-service:8017
+  #   depends_on:
+  #     - mysql
+  #     - canal
+  #   networks:
+  #     - inner_net
+
+  # target-service:
+  #   build: ./target-service
+  #   container_name: target-service
+  #   ports:
+  #     - "8017:8017"
+  #   networks:
+  #     - inner_net
+
+volumes:
+  mysql_data:
+  canal_logs:
+
+networks:
+  inner_net:
+    driver: bridge
