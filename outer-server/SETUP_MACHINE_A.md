@@ -178,15 +178,15 @@ telnet __MACHINE_B_IP__ 3306
 
 请确认以下所有项目都已完成：
 
-- [ ] Docker 已安装并运行
-- [ ] 已获取本机 IP 地址
-- [ ] 已获取机器 B 的 IP 地址
-- [ ] 已替换配置文件中的 IP 占位符
-- [ ] MySQL 已启动并可连接
-- [ ] Redis 已启动并可连接
-- [ ] Kafka 已启动
-- [ ] Canal 已启动
-- [ ] Kafka Topic 已创建
+- [x] Docker 已安装并运行
+- [x] 已获取本机 IP 地址
+- [x] 已获取机器 B 的 IP 地址
+- [x] 已替换配置文件中的 IP 占位符
+- [x] MySQL 已启动并可连接
+- [x] Redis 已启动并可连接
+- [x] Kafka 已启动
+- [x] Canal 已启动
+- [x] Kafka Topic 已创建
 
 ---
 
@@ -255,3 +255,25 @@ canal-outer    Up        0.0.0.0:11111->11111/tcp
 ```
 
 **状态**：✅ 机器 A 基础设施部署完成
+
+---
+
+## 执行日志和状态
+
+**状态**: 所有步骤已成功完成。机器 A 基础设施已根据本文档部署和验证完毕。
+
+**关键信息**:
+- **机器 A IP 地址**: `192.168.123.66`
+- **机器 B IP 地址**: `192.168.123.65`
+
+**执行摘要**:
+1.  **环境检查**: 成功。Docker 已安装。
+2.  **配置文件**: 成功。`docker-compose.yml` 中的 `__MACHINE_A_IP__` 已被替换。`config/canal/instance.properties` 无需更改。
+3.  **启动基础设施**: 成功。所有服务（MySQL, Redis, Kafka, Canal）已启动并运行。
+    - **问题排查**:
+        - **Kafka 镜像问题**: `bitnami/kafka:3.5` 镜像无法找到。已将其替换为 `apache/kafka:latest`。
+        - **Kafka 配置问题**: `apache/kafka` 镜像需要不同的环境变量格式。已更新 `docker-compose.yml` 以使用正确的环境变量名称（例如 `KAFKA_NODE_ID`）和格式（从列表更改为映射）。
+4.  **创建 Kafka Topic**: 成功。`inner_request_binlog` 和 `outer_response_binlog` 已创建并验证。
+5.  **跨机器连通性**: 成功。已从机器 A 的 `mysql-outer` 容器成功连接到机器 B 的 MySQL，并查询了 `inner_gateway.inner_request` 表。
+
+**结论**: 机器 A 准备就绪。
