@@ -1,0 +1,55 @@
+server:
+  port: 8005
+
+spring:
+  application:
+    name: scp0005
+
+  # R2DBC 连接【内网】MySQL（机器B）- 写入请求表
+  r2dbc:
+    url: r2dbc:mysql://${INNER_DB_HOST:192.168.123.65}:${INNER_DB_PORT:3306}/${INNER_DB_NAME:inner_gateway}
+    username: ${INNER_DB_USER:root}
+    password: ${INNER_DB_PASSWORD:root123}
+    pool:
+      initial-size: 5
+      max-size: 20
+      max-idle-time: 30m
+
+  # Redis 配置（本机）- 等待响应结果
+  redis:
+    host: ${REDIS_HOST:redis}
+    port: ${REDIS_PORT:6379}
+    timeout: 10s
+    lettuce:
+      pool:
+        max-active: 20
+        max-idle: 10
+        min-idle: 5
+
+# 业务配置
+gateway:
+  # 轮询 Redis 等待结果的超时时间（毫秒）
+  poll-timeout-ms: 30000
+  # 轮询间隔（毫秒）
+  poll-interval-ms: 100
+  # Redis 结果 key 前缀
+  result-key-prefix: "gateway:result:"
+
+# 日志配置
+logging:
+  level:
+    root: INFO
+    com.mock.scp0005: DEBUG
+    org.springframework.r2dbc: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always

@@ -106,40 +106,49 @@ services:
     networks:
       - outer_net
 
-  # ==================== 应用服务（待开发）====================
-  # scp0005:
-  #   build: ./scp0005
-  #   container_name: scp0005
-  #   ports:
-  #     - "8005:8005"
-  #   environment:
-  #     # 连接【内网】MySQL（机器B）
-  #     - INNER_DB_HOST=__MACHINE_B_IP__
-  #     - INNER_DB_PORT=3306
-  #     - INNER_DB_NAME=inner_gateway
-  #     - INNER_DB_USER=root
-  #     - INNER_DB_PASSWORD=root123
-  #     # 本机 Redis
-  #     - REDIS_HOST=redis
-  #     - REDIS_PORT=6379
-  #   depends_on:
-  #     - redis
-  #   networks:
-  #     - outer_net
+  # ==================== 应用服务 ====================
+  scp0005:
+    build: ./scp0005
+    container_name: scp0005
+    ports:
+      - "8080:8080"
+    environment:
+      # 连接【内网】MySQL（机器B）- 通过强隔离装置穿透
+      - INNER_DB_HOST=__MACHINE_B_IP__
+      - INNER_DB_PORT=3306
+      - INNER_DB_NAME=inner_gateway
+      - INNER_DB_USER=root
+      - INNER_DB_PASSWORD=root123
+      # 本机 Redis
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - outer_net
 
-  # outer-consumer:
-  #   build: ./outer-consumer
-  #   container_name: outer-consumer
-  #   environment:
-  #     - REDIS_HOST=redis
-  #     - KAFKA_BOOTSTRAP=kafka:9092
-  #     - KAFKA_TOPIC=outer_response_binlog
-  #   depends_on:
-  #     - redis
-  #     - kafka
-  #     - canal
-  #   networks:
-  #     - outer_net
+  outer-consumer:
+    build: ./outer-consumer
+    container_name: outer-consumer
+    ports:
+      - "8081:8081"
+    environment:
+      # Redis 配置
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      # Kafka 配置
+      - KAFKA_BOOTSTRAP=kafka:9092
+      - KAFKA_TOPIC=outer_response_binlog
+      # Redis key 前缀 - 与 scp0005 保持一致
+      - RESULT_KEY_PREFIX=gateway:result:
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    networks:
+      - outer_net
 
 volumes:
   mysql_data:

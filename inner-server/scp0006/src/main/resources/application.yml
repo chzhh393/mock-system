@@ -1,0 +1,61 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: scp0006
+
+  # Kafka 配置 - 连接外网机器A的Kafka
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:192.168.123.66:9092}
+    consumer:
+      group-id: scp0006-consumer-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      enable-auto-commit: false
+    listener:
+      ack-mode: manual_immediate
+      concurrency: 3
+
+  # 外网数据库配置 - 写入响应表（通过强隔离装置穿透）
+  datasource:
+    url: jdbc:mysql://${OUTER_DB_HOST:192.168.123.66}:${OUTER_DB_PORT:3306}/${OUTER_DB_NAME:outer_gateway}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+    username: ${OUTER_DB_USER:root}
+    password: ${OUTER_DB_PASSWORD:root123}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+# 网关配置
+gateway:
+  # Kafka Topic - Canal 推送的请求表 Binlog
+  topic: ${KAFKA_TOPIC:inner_request_binlog}
+  # 目标服务地址
+  target-service-url: ${TARGET_SERVICE_URL:http://target-service:8083}
+  # 请求超时时间（毫秒）
+  request-timeout-ms: 30000
+
+# 日志配置
+logging:
+  level:
+    root: INFO
+    com.mock.scp0006: DEBUG
+    org.springframework.kafka: INFO
+    org.springframework.jdbc: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always

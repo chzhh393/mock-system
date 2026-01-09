@@ -61,37 +61,43 @@ services:
     networks:
       - inner_net
 
-  # ==================== 应用服务（待开发）====================
-  # scp0006:
-  #   build: ./scp0006
-  #   container_name: scp0006
-  #   ports:
-  #     - "8006:8006"
-  #   environment:
-  #     # 连接【外网】MySQL（机器A）
-  #     - OUTER_DB_HOST=192.168.123.66
-  #     - OUTER_DB_PORT=3306
-  #     - OUTER_DB_NAME=outer_gateway
-  #     - OUTER_DB_USER=root
-  #     - OUTER_DB_PASSWORD=root123
-  #     # 连接【外网】Kafka（机器A）
-  #     - KAFKA_BOOTSTRAP=192.168.123.66:9092
-  #     - KAFKA_TOPIC=inner_request_binlog
-  #     # 本机目标服务
-  #     - TARGET_SERVICE_URL=http://target-service:8017
-  #   depends_on:
-  #     - mysql
-  #     - canal
-  #   networks:
-  #     - inner_net
+  # ==================== 应用服务 ====================
+  scp0006:
+    build: ./scp0006
+    container_name: scp0006
+    ports:
+      - "8082:8082"
+    environment:
+      # 连接【外网】MySQL（机器A）- 通过强隔离装置穿透
+      - OUTER_DB_HOST=192.168.123.66
+      - OUTER_DB_PORT=3306
+      - OUTER_DB_NAME=outer_gateway
+      - OUTER_DB_USER=root
+      - OUTER_DB_PASSWORD=root123
+      # 连接【外网】Kafka（机器A）
+      - KAFKA_BOOTSTRAP=192.168.123.66:9092
+      - KAFKA_TOPIC=inner_request_binlog
+      # 本机目标服务
+      - TARGET_SERVICE_URL=http://target-service:8083
+    depends_on:
+      mysql:
+        condition: service_healthy
+      target-service:
+        condition: service_started
+    networks:
+      - inner_net
 
-  # target-service:
-  #   build: ./target-service
-  #   container_name: target-service
-  #   ports:
-  #     - "8017:8017"
-  #   networks:
-  #     - inner_net
+  target-service:
+    build: ./target-service
+    container_name: target-service
+    ports:
+      - "8083:8083"
+    environment:
+      # Mock 配置
+      - MOCK_DELAY_MS=50
+      - MOCK_ERROR_RATE=0
+    networks:
+      - inner_net
 
 volumes:
   mysql_data:

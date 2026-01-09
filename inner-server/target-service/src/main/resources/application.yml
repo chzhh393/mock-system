@@ -1,0 +1,31 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: target-service
+
+# Mock 服务配置
+mock:
+  # 模拟处理延迟（毫秒）- 用于模拟真实业务处理时间
+  delay-ms: ${MOCK_DELAY_MS:50}
+  # 模拟错误率（0-100）
+  error-rate: ${MOCK_ERROR_RATE:0}
+
+# 日志配置
+logging:
+  level:
+    root: INFO
+    com.mock.targetservice: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
