@@ -16,6 +16,9 @@ FROM eclipse-temurin:17-jre
 
 WORKDIR /app
 
+# 安装诊断工具
+RUN apt-get update && apt-get install -y netcat-openbsd
+
 # 从构建阶段复制 jar 文件
 COPY --from=builder /app/target/*.jar app.jar
 

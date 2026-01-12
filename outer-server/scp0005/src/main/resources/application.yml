@@ -1,5 +1,5 @@
 server:
-  port: 8005
+  port: 8080
 
 spring:
   application:
@@ -7,7 +7,7 @@ spring:
 
   # R2DBC 连接【内网】MySQL（机器B）- 写入请求表
   r2dbc:
-    url: r2dbc:mysql://${INNER_DB_HOST:192.168.123.65}:${INNER_DB_PORT:3306}/${INNER_DB_NAME:inner_gateway}
+    url: r2dbc:mysql://${INNER_DB_HOST:192.168.123.65}:${INNER_DB_PORT:3306}/${INNER_DB_NAME:inner_gateway}?sslMode=DISABLED
     username: ${INNER_DB_USER:root}
     password: ${INNER_DB_PASSWORD:root123}
     pool:
