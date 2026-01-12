@@ -1,29 +1,25 @@
 # 下一步执行指令
 
-> 🔴 **当前任务：重新部署机器B（架构已调整）**
+> 🔴 **当前任务：修复 MySQL Binlog 不记录 INSERT 事件问题**
 >
-> **重要变更**：机器B 现在有独立的 Kafka，不再依赖机器A的 Kafka
+> **问题现象**：MySQL log_bin=ON，但 INSERT 操作没有被写入 Binlog 文件
 
 ---
 
-## 🔧 架构调整说明
+## 🔧 问题根因分析
 
-**问题根因**：之前机器B的 Canal 和 scp0006 需要连接机器A的 Kafka，但强隔离装置可能不允许 9092 端口穿透。
+MySQL 8.0 在 Docker 环境下可能存在以下问题：
+1. **binlog 缓冲未刷新** - `sync_binlog` 默认可能导致延迟写入
+2. **旧 volume 数据冲突** - 之前的 MySQL 数据可能导致 binlog 状态不一致
+3. **gtid_mode 未配置** - MySQL 8.0 可能需要显式配置 GTID
 
-**解决方案**：在机器B也部署独立的 Kafka，数据流完全在本地完成：
-
-```
-机器B内部流程：
-MySQL → Canal → 本地Kafka → scp0006 → target-service
-                                ↓
-                         写入机器A MySQL（通过3306穿透）
-```
+**解决方案**：增强 MySQL 配置 + 完全清理旧数据重新初始化
 
 ---
 
-## 🚀 机器 B 重新部署步骤
+## 🚀 机器 B 完全重置步骤
 
-### 步骤1：停止现有服务
+### 步骤1：完全停止并清理（关键！）
 
 ```bash
 cd /path/to/mock-system/inner-server
@@ -31,8 +27,11 @@ cd /path/to/mock-system/inner-server
 # 停止所有服务
 docker-compose down
 
-# 清理旧的 Canal 数据（重要！）
-docker volume rm inner-server_canal_logs 2>/dev/null || true
+# 删除所有 volume（重要！必须清理旧的MySQL数据）
+docker volume rm inner-server_mysql_data inner-server_kafka_data inner-server_canal_logs 2>/dev/null || true
+
+# 确认 volume 已删除
+docker volume ls | grep inner-server
 ```
 
 ### 步骤2：拉取最新配置
@@ -41,32 +40,89 @@ docker volume rm inner-server_canal_logs 2>/dev/null || true
 git pull origin main
 ```
 
-### 步骤3：启动基础设施
+### 步骤3：启动 MySQL 和 Kafka
 
 ```bash
-# 先启动 MySQL 和 Kafka
+# 启动 MySQL 和 Kafka
 docker-compose up -d mysql kafka
 
-# 等待服务就绪（约30秒）
-sleep 30
+# 等待 MySQL 完全初始化（约60秒）
+sleep 60
 
 # 检查状态
 docker-compose ps
 ```
 
-### 步骤4：启动 Canal
+### 步骤4：验证 MySQL Binlog 配置
+
+```bash
+# 检查 Binlog 配置
+docker exec -it mysql-inner mysql -uroot -proot123 -e "
+SHOW VARIABLES LIKE 'log_bin';
+SHOW VARIABLES LIKE 'binlog_format';
+SHOW VARIABLES LIKE 'sync_binlog';
+SHOW VARIABLES LIKE 'gtid_mode';
+SHOW VARIABLES LIKE 'enforce_gtid_consistency';
+"
+```
+
+**预期输出**：
+```
+log_bin                      = ON
+binlog_format                = ROW
+sync_binlog                  = 1
+gtid_mode                    = ON
+enforce_gtid_consistency     = ON
+```
+
+### 步骤5：测试 Binlog 是否正常工作
+
+```bash
+# 1. 手动插入测试数据
+docker exec -it mysql-inner mysql -uroot -proot123 -e \
+  "INSERT INTO inner_gateway.inner_request (request_id, code, param_data) VALUES ('binlog-test-$(date +%s)', 'yhzx', '{\"test\":true}');"
+
+# 2. 检查 Binlog 事件（关键验证！）
+docker exec -it mysql-inner mysql -uroot -proot123 -e \
+  "SHOW BINLOG EVENTS IN 'mysql-bin.000001' LIMIT 30;"
+```
+
+**预期结果**：应该看到包含 `inner_request` 表的 INSERT 事件
+
+### 步骤6：启动 Canal
 
 ```bash
 # 启动 Canal
 docker-compose up -d canal
 
-# 查看 Canal 日志，确认连接到本地 Kafka
-docker-compose logs -f canal
+# 等待 Canal 连接
+sleep 10
+
+# 查看 Canal 日志
+docker-compose logs --tail=50 canal
 ```
 
-**预期日志**：应该看到连接 `kafka:19092` 成功
+**预期日志**：应该看到成功连接 MySQL 和 Kafka
 
-### 步骤5：启动应用服务
+### 步骤7：验证端到端
+
+```bash
+# 1. 再次插入测试数据
+docker exec -it mysql-inner mysql -uroot -proot123 -e \
+  "INSERT INTO inner_gateway.inner_request (request_id, code, param_data) VALUES ('e2e-test-$(date +%s)', 'yhzx', '{\"test\":true}');"
+
+# 2. 检查 Kafka 是否收到消息
+docker exec -it kafka-inner kafka-console-consumer.sh \
+  --bootstrap-server localhost:9092 \
+  --topic inner_request_binlog \
+  --from-beginning \
+  --max-messages 5 \
+  --timeout-ms 10000
+```
+
+**预期结果**：应该看到 JSON 格式的 Binlog 消息
+
+### 步骤8：启动应用服务
 
 ```bash
 # 构建并启动应用
@@ -76,27 +132,17 @@ docker-compose up -d --build target-service scp0006
 docker-compose logs -f scp0006
 ```
 
-**预期日志**：应该看到连接 Kafka 成功，等待消息
-
 ---
 
 ## ✅ 验证检查清单
 
-在机器B上执行以下验证：
-
-```bash
-# 1. 检查所有服务状态
-docker-compose ps
-
-# 2. 检查 Kafka 是否正常
-docker exec -it kafka-inner kafka-topics.sh --bootstrap-server localhost:9092 --list
-
-# 3. 检查 Canal 日志
-docker-compose logs --tail=20 canal
-
-# 4. 检查 scp0006 日志
-docker-compose logs --tail=20 scp0006
-```
+| 检查项 | 命令 | 预期结果 |
+|--------|------|----------|
+| log_bin | `SHOW VARIABLES LIKE 'log_bin';` | ON |
+| gtid_mode | `SHOW VARIABLES LIKE 'gtid_mode';` | ON |
+| sync_binlog | `SHOW VARIABLES LIKE 'sync_binlog';` | 1 |
+| Binlog 有事件 | `SHOW BINLOG EVENTS...` | 能看到 INSERT 事件 |
+| Kafka 收到消息 | `kafka-console-consumer...` | 有 JSON 消息 |
 
 ---
 
@@ -104,11 +150,14 @@ docker-compose logs --tail=20 scp0006
 
 | 步骤 | 检查项 | 结果 | 备注 |
 |------|--------|------|------|
-| 1 | 停止旧服务 | ⏳ | - |
+| 1 | 停止并清理所有 volume | ⏳ | - |
 | 2 | 拉取最新配置 | ⏳ | - |
 | 3 | MySQL + Kafka 启动 | ⏳ | - |
-| 4 | Canal 启动并连接本地 Kafka | ⏳ | - |
-| 5 | scp0006 启动并连接本地 Kafka | ⏳ | - |
+| 4 | MySQL Binlog 配置验证 | ⏳ | - |
+| 5 | Binlog 事件测试 | ⏳ | - |
+| 6 | Canal 启动 | ⏳ | - |
+| 7 | Kafka 收到消息 | ⏳ | - |
+| 8 | 应用服务启动 | ⏳ | - |
 
 ---
 

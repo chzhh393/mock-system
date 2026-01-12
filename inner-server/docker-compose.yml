@@ -28,6 +28,10 @@ services:
       --log-bin=mysql-bin
       --binlog-format=ROW
       --binlog-row-image=FULL
+      --sync-binlog=1
+      --binlog-expire-logs-seconds=604800
+      --gtid-mode=ON
+      --enforce-gtid-consistency=ON
       --default-authentication-plugin=mysql_native_password
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-proot123"]
