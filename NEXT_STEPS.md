@@ -1,118 +1,114 @@
 # 下一步执行指令
 
-> 🔴 **当前任务：排查联调测试失败问题**
+> 🔴 **当前任务：重新部署机器B（架构已调整）**
 >
-> **问题**：机器A发起请求后，机器B未收到请求
+> **重要变更**：机器B 现在有独立的 Kafka，不再依赖机器A的 Kafka
 
 ---
 
-## 🔍 排查步骤（按顺序执行）
+## 🔧 架构调整说明
 
-### 步骤1：机器 A 检查 scp0005 是否能连接机器B的MySQL
+**问题根因**：之前机器B的 Canal 和 scp0006 需要连接机器A的 Kafka，但强隔离装置可能不允许 9092 端口穿透。
 
-```bash
-# 1. 进入 scp0005 容器
-docker exec -it scp0005 bash
+**解决方案**：在机器B也部署独立的 Kafka，数据流完全在本地完成：
 
-# 2. 测试到机器B MySQL的网络连通性
-nc -zv 192.168.123.65 3306
-
-# 3. 退出容器
-exit
+```
+机器B内部流程：
+MySQL → Canal → 本地Kafka → scp0006 → target-service
+                                ↓
+                         写入机器A MySQL（通过3306穿透）
 ```
 
-**预期结果**：显示 `Connection to 192.168.123.65 3306 port [tcp/mysql] succeeded!`
-
-**如果失败**：检查机器B的防火墙或MySQL是否允许远程连接
-
 ---
 
-### 步骤2：机器 A 发送测试请求并查看日志
+## 🚀 机器 B 重新部署步骤
+
+### 步骤1：停止现有服务
 
 ```bash
-# 1. 打开一个终端，实时查看 scp0005 日志
-docker-compose logs -f scp0005
+cd /path/to/mock-system/inner-server
 
-# 2. 在另一个终端发送测试请求
-curl -X POST http://localhost:8080/inner/c1/yhzx \
-  -H "Content-Type: application/x-www-form-urlencoded" \
-  -d "code=yhzx&paramData={\"userId\":\"test001\",\"action\":\"query\"}"
+# 停止所有服务
+docker-compose down
+
+# 清理旧的 Canal 数据（重要！）
+docker volume rm inner-server_canal_logs 2>/dev/null || true
 ```
 
-**查看日志中是否有**：
-- `写入内网数据库成功` 或类似成功信息
-- 如有报错，记录错误信息
-
----
-
-### 步骤3：机器 B 检查请求是否写入MySQL
+### 步骤2：拉取最新配置
 
 ```bash
-# 查看 inner_request 表是否有数据
-docker exec -it mysql-inner mysql -uroot -proot123 -e \
-  "SELECT * FROM inner_gateway.inner_request ORDER BY id DESC LIMIT 5;"
+git pull origin main
 ```
 
-**预期结果**：显示最近的请求记录
-
-**如果没有数据**：说明 scp0005 没有成功写入，问题在机器A
-
----
-
-### 步骤4：机器 B 检查 Canal 是否监听到变化
+### 步骤3：启动基础设施
 
 ```bash
-# 查看 Canal 日志
-docker-compose logs --tail=50 canal
+# 先启动 MySQL 和 Kafka
+docker-compose up -d mysql kafka
+
+# 等待服务就绪（约30秒）
+sleep 30
+
+# 检查状态
+docker-compose ps
 ```
 
-**查看是否有**：
-- Binlog 解析相关日志
-- Kafka 发送相关日志
-- 任何错误信息
-
----
-
-### 步骤5：机器 B 检查 scp0006 是否收到消息
+### 步骤4：启动 Canal
 
 ```bash
+# 启动 Canal
+docker-compose up -d canal
+
+# 查看 Canal 日志，确认连接到本地 Kafka
+docker-compose logs -f canal
+```
+
+**预期日志**：应该看到连接 `kafka:19092` 成功
+
+### 步骤5：启动应用服务
+
+```bash
+# 构建并启动应用
+docker-compose up -d --build target-service scp0006
+
 # 查看 scp0006 日志
-docker-compose logs --tail=50 scp0006
+docker-compose logs -f scp0006
 ```
 
-**查看是否有**：
-- `收到 Binlog 消息` 相关日志
-- Kafka 消费相关日志
+**预期日志**：应该看到连接 Kafka 成功，等待消息
 
 ---
 
-### 步骤6：机器 A 检查 Kafka 中是否有消息
+## ✅ 验证检查清单
+
+在机器B上执行以下验证：
 
 ```bash
-# 查看 inner_request_binlog topic 中的消息
-docker exec -it kafka kafka-console-consumer.sh \
-  --bootstrap-server localhost:9092 \
-  --topic inner_request_binlog \
-  --from-beginning \
-  --max-messages 5
-```
+# 1. 检查所有服务状态
+docker-compose ps
 
-**预期结果**：显示 JSON 格式的 Binlog 消息
+# 2. 检查 Kafka 是否正常
+docker exec -it kafka-inner kafka-topics.sh --bootstrap-server localhost:9092 --list
+
+# 3. 检查 Canal 日志
+docker-compose logs --tail=20 canal
+
+# 4. 检查 scp0006 日志
+docker-compose logs --tail=20 scp0006
+```
 
 ---
 
-## 📝 排查结果记录
-
-请在下方记录每个步骤的结果：
+## 📝 部署结果记录
 
 | 步骤 | 检查项 | 结果 | 备注 |
 |------|--------|------|------|
-| 1 | scp0005→机器B MySQL连通性 | ⏳ | - |
-| 2 | scp0005 写入日志 | ⏳ | - |
-| 3 | 机器B MySQL有请求数据 | ⏳ | - |
-| 4 | 机器B Canal监听日志 | ⏳ | - |
-| 5 | scp0006 收到消息 | ⏳ | - |
-| 6 | Kafka有消息 | ⏳ | - |
+| 1 | 停止旧服务 | ⏳ | - |
+| 2 | 拉取最新配置 | ⏳ | - |
+| 3 | MySQL + Kafka 启动 | ⏳ | - |
+| 4 | Canal 启动并连接本地 Kafka | ⏳ | - |
+| 5 | scp0006 启动并连接本地 Kafka | ⏳ | - |
 
 ---
 
