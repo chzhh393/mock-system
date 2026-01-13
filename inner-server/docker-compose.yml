@@ -7,9 +7,9 @@
 version: '3.8'
 
 services:
-  # ==================== 数据库 ====================
+  # ==================== MySQL ====================
   mysql:
-    image: mysql:8.0
+    image: docker.m.daocloud.io/library/mysql:8.0
     container_name: mysql-inner
     ports:
       - "3306:3306"
@@ -40,7 +40,7 @@ services:
   # ==================== Kafka ====================
   # 内网独立的 Kafka，使用 Confluent 镜像（KRaft 模式）
   kafka:
-    image: confluentinc/cp-kafka:7.5.0
+    image: docker.m.daocloud.io/confluentinc/cp-kafka:7.5.0
     container_name: kafka-inner
     ports:
       - "9092:9092"
@@ -69,37 +69,23 @@ services:
     networks:
       - inner_net
 
-  # ==================== Kafka Connect (Debezium) ====================
-  # Debezium 监听内网 MySQL 的请求表，推送到【本地】Kafka
-  kafka-connect:
-    image: debezium/connect:2.4
-    container_name: kafka-connect-inner
+  # ==================== Canal ====================
+  canal:
+    image: canal/canal-server:v1.1.7
+    container_name: canal-inner
     ports:
-      - "8083:8083"
+      - "11111:11111"
     environment:
-      BOOTSTRAP_SERVERS: kafka:9092
-      GROUP_ID: inner-connect-cluster
-      CONFIG_STORAGE_TOPIC: connect_configs
-      OFFSET_STORAGE_TOPIC: connect_offsets
-      STATUS_STORAGE_TOPIC: connect_statuses
-      CONFIG_STORAGE_REPLICATION_FACTOR: 1
-      OFFSET_STORAGE_REPLICATION_FACTOR: 1
-      STATUS_STORAGE_REPLICATION_FACTOR: 1
-      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
-      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
-      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
-      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      - canal.auto.scan=false
+      - canal.destinations=example
+    volumes:
+      - ./config/canal/canal.properties:/home/admin/canal-server/conf/canal.properties
+      - ./config/canal/instance.properties:/home/admin/canal-server/conf/example/instance.properties
     depends_on:
       mysql:
         condition: service_healthy
       kafka:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8083/ || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
+        condition: service_started
     networks:
       - inner_net
 

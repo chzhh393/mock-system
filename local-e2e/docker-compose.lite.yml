@@ -38,39 +38,45 @@ services:
     networks:
       - gateway_local_net
 
-  # ==================== 共享 Kafka Connect ====================
-  kafka-connect:
-    image: debezium/connect:2.4
-    container_name: kafka-connect-shared
+  # ==================== Canal Inner ====================
+  # 监听 inner MySQL 的 inner_request 表
+  canal-inner:
+    image: canal/canal-server:v1.1.7
+    container_name: canal-inner
     ports:
-      - "8083:8083"
+      - "11111:11111"
     environment:
-      BOOTSTRAP_SERVERS: kafka:9092
-      GROUP_ID: shared-connect-cluster
-      HEAP_OPTS: "-Xms512m -Xmx1024m"
-      CONFIG_STORAGE_TOPIC: connect_configs
-      OFFSET_STORAGE_TOPIC: connect_offsets
-      STATUS_STORAGE_TOPIC: connect_statuses
-      CONFIG_STORAGE_REPLICATION_FACTOR: 1
-      OFFSET_STORAGE_REPLICATION_FACTOR: 1
-      STATUS_STORAGE_REPLICATION_FACTOR: 1
-      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
-      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
-      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
-      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      - canal.auto.scan=false
+      - canal.destinations=example
+    volumes:
+      - ./config/canal/canal.properties:/home/admin/canal-server/conf/canal.properties
+      - ./config/canal/instance.properties:/home/admin/canal-server/conf/example/instance.properties
     depends_on:
       mysql-inner:
         condition: service_healthy
+      kafka:
+        condition: service_healthy
+    networks:
+      - gateway_local_net
+
+  # ==================== Canal Outer ====================
+  # 监听 outer MySQL 的 outer_response 表
+  canal-outer:
+    image: canal/canal-server:v1.1.7
+    container_name: canal-outer
+    ports:
+      - "11112:11111"
+    environment:
+      - canal.auto.scan=false
+      - canal.destinations=example
+    volumes:
+      - ./config/canal-outer/canal.properties:/home/admin/canal-server/conf/canal.properties
+      - ./config/canal-outer/instance.properties:/home/admin/canal-server/conf/example/instance.properties
+    depends_on:
       mysql-outer:
         condition: service_healthy
       kafka:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8083/ || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
     networks:
       - gateway_local_net
 

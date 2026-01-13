@@ -2,15 +2,15 @@
 # 在同一台机器上同时运行 inner-server 和 outer-server 的所有服务
 #
 # 端口分配：
-#   Inner: MySQL 3307, Kafka 9093, Connect 8084, scp0006 8082, target 8017
-#   Outer: MySQL 3306, Kafka 9092, Connect 8083, scp0005 8080, consumer 8081, Redis 6379
+#   Inner: MySQL 3307, Kafka 9093, Canal 11111, scp0006 8082, target 8017
+#   Outer: MySQL 3306, Kafka 9092, Canal 11112, scp0005 8080, consumer 8081, Redis 6379
 
 version: '3.8'
 
 services:
   # ==================== Inner 端（机器B）MySQL ====================
   mysql-inner:
-    image: mysql:8.0
+    image: docker.m.daocloud.io/library/mysql:8.0
     container_name: mysql-inner
     ports:
       - "3307:3306"
@@ -38,9 +38,29 @@ services:
     networks:
       - gateway_local_net
 
+  # ==================== Inner Canal ====================
+  canal-inner:
+    image: canal/canal-server:v1.1.7
+    container_name: canal-inner
+    ports:
+      - "11111:11111"
+    environment:
+      - canal.auto.scan=false
+      - canal.destinations=example
+    volumes:
+      - ./config/canal/canal.properties:/home/admin/canal-server/conf/canal.properties
+      - ./config/canal/instance.properties:/home/admin/canal-server/conf/example/instance.properties
+    depends_on:
+      mysql-inner:
+        condition: service_healthy
+      kafka-inner:
+        condition: service_healthy
+    networks:
+      - gateway_local_net
+
   # ==================== Inner 端（机器B）Kafka ====================
   kafka-inner:
-    image: confluentinc/cp-kafka:7.5.0
+    image: docker.m.daocloud.io/confluentinc/cp-kafka:7.5.0
     container_name: kafka-inner
     ports:
       - "9093:9092"
@@ -62,39 +82,6 @@ services:
       - kafka_inner_data:/var/lib/kafka/data
     healthcheck:
       test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
-    networks:
-      - gateway_local_net
-
-  # ==================== Inner 端（机器B）Kafka Connect ====================
-  kafka-connect-inner:
-    image: debezium/connect:2.4
-    container_name: kafka-connect-inner
-    ports:
-      - "8084:8083"
-    environment:
-      BOOTSTRAP_SERVERS: kafka-inner:9092
-      GROUP_ID: inner-connect-cluster
-      CONFIG_STORAGE_TOPIC: inner_connect_configs
-      OFFSET_STORAGE_TOPIC: inner_connect_offsets
-      STATUS_STORAGE_TOPIC: inner_connect_statuses
-      CONFIG_STORAGE_REPLICATION_FACTOR: 1
-      OFFSET_STORAGE_REPLICATION_FACTOR: 1
-      STATUS_STORAGE_REPLICATION_FACTOR: 1
-      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
-      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
-      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
-      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
-    depends_on:
-      mysql-inner:
-        condition: service_healthy
-      kafka-inner:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8083/ || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -146,7 +133,7 @@ services:
 
   # ==================== Outer 端（机器A）MySQL ====================
   mysql-outer:
-    image: mysql:8.0
+    image: docker.m.daocloud.io/library/mysql:8.0
     container_name: mysql-outer
     ports:
       - "3306:3306"
@@ -170,6 +157,26 @@ services:
     networks:
       - gateway_local_net
 
+  # ==================== Outer Canal ====================
+  canal-outer:
+    image: canal/canal-server:v1.1.7
+    container_name: canal-outer
+    ports:
+      - "11112:11111"
+    environment:
+      - canal.auto.scan=false
+      - canal.destinations=example
+    volumes:
+      - ./config/canal-outer/canal.properties:/home/admin/canal-server/conf/canal.properties
+      - ./config/canal-outer/instance.properties:/home/admin/canal-server/conf/example/instance.properties
+    depends_on:
+      mysql-outer:
+        condition: service_healthy
+      kafka-outer:
+        condition: service_healthy
+    networks:
+      - gateway_local_net
+
   # ==================== Outer 端（机器A）Redis ====================
   redis:
     image: redis:7-alpine
@@ -189,7 +196,7 @@ services:
 
   # ==================== Outer 端（机器A）Kafka ====================
   kafka-outer:
-    image: confluentinc/cp-kafka:7.5.0
+    image: docker.m.daocloud.io/confluentinc/cp-kafka:7.5.0
     container_name: kafka-outer
     ports:
       - "9092:9092"
@@ -211,39 +218,6 @@ services:
       - kafka_outer_data:/var/lib/kafka/data
     healthcheck:
       test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
-    networks:
-      - gateway_local_net
-
-  # ==================== Outer 端（机器A）Kafka Connect ====================
-  kafka-connect-outer:
-    image: debezium/connect:2.4
-    container_name: kafka-connect-outer
-    ports:
-      - "8083:8083"
-    environment:
-      BOOTSTRAP_SERVERS: kafka-outer:9092
-      GROUP_ID: outer-connect-cluster
-      CONFIG_STORAGE_TOPIC: outer_connect_configs
-      OFFSET_STORAGE_TOPIC: outer_connect_offsets
-      STATUS_STORAGE_TOPIC: outer_connect_statuses
-      CONFIG_STORAGE_REPLICATION_FACTOR: 1
-      OFFSET_STORAGE_REPLICATION_FACTOR: 1
-      STATUS_STORAGE_REPLICATION_FACTOR: 1
-      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
-      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
-      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
-      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
-    depends_on:
-      mysql-outer:
-        condition: service_healthy
-      kafka-outer:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8083/ || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
