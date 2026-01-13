@@ -1,12 +1,8 @@
 # 机器 B（内网）Docker Compose 配置
 #
-# 使用前请替换以下占位符：
-#   192.168.123.66 : 机器A（外网）的 IP 地址
-#   192.168.123.65 : 本机（机器B）的 IP 地址
-#
-# 替换命令：
-#   sed -i '' "s/192.168.123.66/192.168.1.100/g" docker-compose.yml
-#   sed -i '' "s/192.168.123.65/192.168.1.101/g" docker-compose.yml
+# IP 地址配置：
+#   机器A（外网）: 192.168.123.66
+#   机器B（内网/本机）: 192.168.123.81
 
 version: '3.8'
 
@@ -42,56 +38,68 @@ services:
       - inner_net
 
   # ==================== Kafka ====================
-  # 内网独立的 Kafka，不依赖外网
+  # 内网独立的 Kafka，使用 Confluent 镜像（KRaft 模式）
   kafka:
-    image: apache/kafka:latest
+    image: confluentinc/cp-kafka:7.5.0
     container_name: kafka-inner
     ports:
       - "9092:9092"
     environment:
-      - KAFKA_NODE_ID=1
-      - KAFKA_PROCESS_ROLES=controller,broker
-      - KAFKA_CLUSTER_ID=inner-5h6g7j-8k9l-0m1n-2p3q-4r5s6t7u8v9w
-      - KAFKA_LISTENERS=INTERNAL://0.0.0.0:19092,EXTERNAL://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-      - KAFKA_ADVERTISED_LISTENERS=INTERNAL://kafka:19092,EXTERNAL://192.168.123.65:9092
-      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
-      - KAFKA_INTER_BROKER_LISTENER_NAME=INTERNAL
-      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
-      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
-      - KAFKA_AUTO_CREATE_TOPICS_ENABLE=true
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
     volumes:
-      - kafka_data:/bitnami/kafka
+      - kafka_data:/var/lib/kafka/data
     healthcheck:
-      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
+      start_period: 60s
     networks:
       - inner_net
 
-  # ==================== Canal ====================
-  # Canal 监听内网 MySQL 的请求表，推送到【本地】Kafka
-  canal:
-    image: canal/canal-server:v1.1.7
-    container_name: canal-inner
+  # ==================== Kafka Connect (Debezium) ====================
+  # Debezium 监听内网 MySQL 的请求表，推送到【本地】Kafka
+  kafka-connect:
+    image: debezium/connect:2.4
+    container_name: kafka-connect-inner
     ports:
-      - "11111:11111"
+      - "8083:8083"
     environment:
-      - canal.instance.master.address=mysql:3306
-      - canal.instance.dbUsername=root
-      - canal.instance.dbPassword=root123
-      - canal.instance.filter.regex=inner_gateway\\.inner_request
-      - canal.mq.topic=inner_request_binlog
-      - canal.serverMode=kafka
-      - kafka.bootstrap.servers=kafka:19092
-    volumes:
-      - ./config/canal:/home/admin/canal-server/conf/example
-      - canal_logs:/home/admin/canal-server/logs
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: inner-connect-cluster
+      CONFIG_STORAGE_TOPIC: connect_configs
+      OFFSET_STORAGE_TOPIC: connect_offsets
+      STATUS_STORAGE_TOPIC: connect_statuses
+      CONFIG_STORAGE_REPLICATION_FACTOR: 1
+      OFFSET_STORAGE_REPLICATION_FACTOR: 1
+      STATUS_STORAGE_REPLICATION_FACTOR: 1
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
     depends_on:
       mysql:
         condition: service_healthy
       kafka:
-        condition: service_started
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8083/ || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     networks:
       - inner_net
 
@@ -102,17 +110,17 @@ services:
     ports:
       - "8082:8082"
     environment:
-      # 连接【外网】MySQL（机器A）- 通过强隔离装置穿透
-      - OUTER_DB_HOST=192.168.123.66
-      - OUTER_DB_PORT=3306
+      # 连接【外网】MySQL（机器A）- 通过端口转发
+      - OUTER_DB_HOST=host.docker.internal
+      - OUTER_DB_PORT=3307
       - OUTER_DB_NAME=outer_gateway
       - OUTER_DB_USER=root
       - OUTER_DB_PASSWORD=root123
       # 连接【本地】Kafka（机器B）
-      - KAFKA_BOOTSTRAP=kafka:19092
+      - KAFKA_BOOTSTRAP=kafka:9092
       - KAFKA_TOPIC=inner_request_binlog
       # 本机目标服务
-      - TARGET_SERVICE_URL=http://target-service:8083
+      - TARGET_SERVICE_URL=http://target-service:8017
     depends_on:
       mysql:
         condition: service_healthy
@@ -127,8 +135,9 @@ services:
     build: ./target-service
     container_name: target-service
     ports:
-      - "8083:8083"
+      - "8017:8017"
     environment:
+      - SERVER_PORT=8017
       # Mock 配置
       - MOCK_DELAY_MS=50
       - MOCK_ERROR_RATE=0
@@ -138,7 +147,6 @@ services:
 volumes:
   mysql_data:
   kafka_data:
-  canal_logs:
 
 networks:
   inner_net:

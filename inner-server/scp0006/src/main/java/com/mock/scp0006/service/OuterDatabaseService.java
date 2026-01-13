@@ -36,7 +36,7 @@ public class OuterDatabaseService {
 
         String sql = """
             INSERT INTO outer_response
-            (request_id, response_data, code, message, create_time)
+            (request_id, response_data, response_code, error_msg, create_time)
             VALUES (?, ?, ?, ?, ?)
             """;
 

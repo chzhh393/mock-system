@@ -2,6 +2,7 @@ package com.mock.outerconsumer.consumer;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mock.outerconsumer.model.CanalMessage;
+import com.mock.outerconsumer.model.DebeziumMessage;
 import com.mock.outerconsumer.service.RedisService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +29,7 @@ public class BinlogConsumer {
 
     /**
      * 消费响应表 Binlog 消息
+     * 支持 Canal 和 Debezium 两种消息格式
      *
      * @param record         Kafka 消息记录
      * @param acknowledgment 手动确认对象
@@ -40,32 +42,14 @@ public class BinlogConsumer {
             String message = record.value();
             log.debug("收到 Binlog 消息: partition={}, offset={}", record.partition(), record.offset());
 
-            // 1. 解析 Canal 消息
-            CanalMessage canalMessage = objectMapper.readValue(message, CanalMessage.class);
-
-            // 2. 只处理 INSERT 和 UPDATE 操作
-            String type = canalMessage.getType();
-            if (!"INSERT".equals(type) && !"UPDATE".equals(type)) {
-                log.debug("忽略非 INSERT/UPDATE 操作: type={}", type);
-                acknowledgment.acknowledge();
-                return;
+            // 检测消息格式并处理
+            if (isDebeziumMessage(message)) {
+                processDebeziumMessage(message);
+            } else {
+                processCanalMessage(message);
             }
 
-            // 3. 跳过 DDL 语句
-            if (Boolean.TRUE.equals(canalMessage.getIsDdl())) {
-                log.debug("忽略 DDL 语句");
-                acknowledgment.acknowledge();
-                return;
-            }
-
-            // 4. 处理数据变更
-            if (canalMessage.getData() != null && !canalMessage.getData().isEmpty()) {
-                for (Map<String, String> rowData : canalMessage.getData()) {
-                    processResponseRow(rowData);
-                }
-            }
-
-            // 5. 确认消息
+            // 确认消息
             acknowledgment.acknowledge();
 
             long elapsed = System.currentTimeMillis() - startTime;
@@ -79,12 +63,96 @@ public class BinlogConsumer {
     }
 
     /**
-     * 处理单行响应数据
+     * 检测是否为 Debezium 消息格式
+     */
+    private boolean isDebeziumMessage(String message) {
+        return message.contains("\"payload\"") && message.contains("\"op\"");
+    }
+
+    /**
+     * 处理 Debezium 消息
+     */
+    private void processDebeziumMessage(String message) throws Exception {
+        DebeziumMessage debeziumMessage = objectMapper.readValue(message, DebeziumMessage.class);
+
+        // 只处理 INSERT 和 UPDATE 操作（op=c 或 op=u）
+        if (!debeziumMessage.isInsert() && !debeziumMessage.isUpdate()) {
+            log.debug("忽略非 INSERT/UPDATE 操作: op={}",
+                debeziumMessage.getPayload() != null ? debeziumMessage.getPayload().getOp() : "null");
+            return;
+        }
+
+        // 获取变更后的数据
+        Map<String, Object> afterData = debeziumMessage.getAfterData();
+        if (afterData != null && !afterData.isEmpty()) {
+            processResponseRowFromDebezium(afterData);
+        }
+    }
+
+    /**
+     * 处理 Canal 消息
+     */
+    private void processCanalMessage(String message) throws Exception {
+        CanalMessage canalMessage = objectMapper.readValue(message, CanalMessage.class);
+
+        // 只处理 INSERT 和 UPDATE 操作
+        String type = canalMessage.getType();
+        if (!"INSERT".equals(type) && !"UPDATE".equals(type)) {
+            log.debug("忽略非 INSERT/UPDATE 操作: type={}", type);
+            return;
+        }
+
+        // 跳过 DDL 语句
+        if (Boolean.TRUE.equals(canalMessage.getIsDdl())) {
+            log.debug("忽略 DDL 语句");
+            return;
+        }
+
+        // 处理数据变更
+        if (canalMessage.getData() != null && !canalMessage.getData().isEmpty()) {
+            for (Map<String, String> rowData : canalMessage.getData()) {
+                processResponseRow(rowData);
+            }
+        }
+    }
+
+    /**
+     * 从 Debezium 数据处理响应行
+     */
+    private void processResponseRowFromDebezium(Map<String, Object> rowData) {
+        String requestId = getStringValue(rowData, "request_id");
+        String responseData = getStringValue(rowData, "response_data");
+        String code = getStringValue(rowData, "code");
+        String message = getStringValue(rowData, "message");
+
+        if (requestId == null || requestId.isEmpty()) {
+            log.warn("响应数据缺少 request_id，跳过处理");
+            return;
+        }
+
+        log.info("流水号:{}, 收到响应, code={}", requestId, code);
+
+        // 构建完整的响应 JSON
+        String fullResponse = buildResponseJson(responseData, code, message);
+
+        // 写入 Redis
+        redisService.writeResult(requestId, fullResponse);
+    }
+
+    /**
+     * 从 Map 中安全获取字符串值
+     */
+    private String getStringValue(Map<String, Object> map, String key) {
+        Object value = map.get(key);
+        return value != null ? String.valueOf(value) : null;
+    }
+
+    /**
+     * 处理单行响应数据（Canal 格式）
      *
      * @param rowData 行数据
      */
     private void processResponseRow(Map<String, String> rowData) {
-        // 从行数据中提取字段
         String requestId = rowData.get("request_id");
         String responseData = rowData.get("response_data");
         String code = rowData.get("code");

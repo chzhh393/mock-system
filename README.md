@@ -9,19 +9,21 @@
 ```
 ┌─────────────────────────────────────┐     ┌─────────────────────────────────────┐
 │         机器 A（外网）               │     │          机器 B（内网）              │
+│         192.168.123.66              │     │          192.168.123.81             │
 ├─────────────────────────────────────┤     ├─────────────────────────────────────┤
 │                                     │     │                                     │
 │  应用服务:                           │     │  应用服务:                           │
-│  ├─ scp0005 (外网网关)      :8005   │     │  ├─ scp0006 (内网穿透)      :8006   │
-│  └─ outer-consumer          :8010   │     │  └─ target-service          :8017   │
+│  ├─ scp0005 (外网网关)      :8080   │     │  ├─ scp0006 (内网穿透)      :8082   │
+│  └─ outer-consumer          :8081   │     │  └─ target-service          :8017   │
 │                                     │     │                                     │
 │  数据库:                             │     │  数据库:                             │
 │  └─ MySQL (响应表)          :3306   │     │  └─ MySQL (请求表)          :3306   │
 │                                     │     │                                     │
 │  中间件:                             │     │  中间件:                             │
-│  ├─ Redis                   :6379   │     │  └─ Canal (监听请求表)      :11111  │
-│  ├─ Kafka                   :9092   │     │                                     │
-│  └─ Canal (监听响应表)      :11111  │     │                                     │
+│  ├─ Redis                   :6379   │     │  ├─ Kafka                   :9092   │
+│  ├─ Kafka                   :9092   │     │  └─ Kafka Connect (Debezium):8083   │
+│  ├─ Kafka Connect (Debezium):8083   │     │                                     │
+│  └─ Registry (私有镜像仓库) :5000   │     │                                     │
 │                                     │     │                                     │
 └─────────────────────────────────────┘     └─────────────────────────────────────┘
 ```
@@ -31,35 +33,42 @@
 ```
 1. 客户端 → scp0005 (机器A)
 2. scp0005 → INSERT → 机器B的MySQL(请求表)
-3. 机器B的Canal 监听到 Binlog → Kafka (机器A)
+3. 机器B的 Debezium 监听 Binlog → Kafka (inner_request_binlog)
 4. scp0006 消费 Kafka → 调用 target-service
 5. scp0006 → INSERT → 机器A的MySQL(响应表)
-6. 机器A的Canal 监听到 Binlog → Kafka
+6. 机器A的 Debezium 监听 Binlog → Kafka (outer_response_binlog)
 7. outer-consumer 消费 → 写入 Redis
 8. scp0005 从 Redis 获取结果 → 返回客户端
 ```
 
 ---
 
-## 部署指南
+## 快速开始
 
-### 前置要求
+详细部署步骤请参考 **[DEPLOYMENT.md](./DEPLOYMENT.md)**
 
-- 两台 Mac 笔记本（或任意支持 Docker 的机器）
-- 两台机器在同一局域网
-- 已安装 Docker Desktop
+### 部署方式
 
-### 部署步骤
+| 方式 | 说明 | 适用场景 |
+|------|------|----------|
+| 私有 Registry + Docker TCP | 一键部署，无需 SSH | 日常更新（推荐） |
+| SSH 手动部署 | 完整控制 | 首次部署、问题排查 |
+| 本地 E2E 测试 | 单机模拟双环境 | 本地开发验证 |
 
-**重要**：请按照以下顺序部署
+### 快速部署命令
 
-| 步骤 | 机器 | 操作 |
-|------|------|------|
-| 1 | 机器 A | 执行 `outer-server/SETUP_MACHINE_A.md` |
-| 2 | 机器 B | 执行 `inner-server/SETUP_MACHINE_B.md` |
-| 3 | 机器 A | 启动应用服务 |
-| 4 | 机器 B | 启动应用服务 |
-| 5 | 任意 | 执行测试验证 |
+```bash
+# 查看服务状态
+./deploy-registry.sh status
+
+# 部署所有服务
+./deploy-registry.sh all
+
+# 端到端测试
+curl -X POST "http://192.168.123.66:8080/inner/c1/yhzx" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "code=yhzx&paramData={\"test\":\"hello\"}"
+```
 
 ---
 
@@ -68,39 +77,39 @@
 ```
 mock-system/
 ├── README.md                          # 本文件
-├── outer-server/                      # 机器 A（外网）部署文件
-│   ├── SETUP_MACHINE_A.md            # 【AI 执行指令】机器 A 部署步骤
-│   ├── docker-compose.yml            # Docker Compose 配置
-│   ├── config/
-│   │   ├── mysql/init.sql            # 数据库初始化（响应表）
-│   │   └── canal/instance.properties # Canal 配置
-│   └── scripts/
-│       ├── start.sh                  # 启动脚本
-│       └── test.sh                   # 测试脚本
+├── DEPLOYMENT.md                      # 详细部署指南
+├── deploy-registry.sh                 # 私有 Registry 部署脚本
+├── deploy-remote.sh                   # SSH 远程部署脚本
 │
-└── inner-server/                      # 机器 B（内网）部署文件
-    ├── SETUP_MACHINE_B.md            # 【AI 执行指令】机器 B 部署步骤
-    ├── docker-compose.yml            # Docker Compose 配置
-    ├── config/
-    │   ├── mysql/init.sql            # 数据库初始化（请求表）
-    │   └── canal/instance.properties # Canal 配置
-    └── scripts/
-        └── start.sh                  # 启动脚本
+├── outer-server/                      # 机器 A（外网）部署文件
+│   ├── docker-compose.yml            # Docker Compose 配置
+│   ├── init-debezium-connector.sh    # Debezium 连接器初始化
+│   ├── scp0005/                      # 外网网关服务
+│   └── outer-consumer/               # 响应消费服务
+│
+├── inner-server/                      # 机器 B（内网）部署文件
+│   ├── docker-compose.yml            # Docker Compose 配置
+│   ├── init-debezium-connector.sh    # Debezium 连接器初始化
+│   ├── scp0006/                      # 内网穿透服务
+│   └── target-service/               # 模拟目标服务
+│
+└── local-e2e/                         # 本地端到端测试环境
+    ├── start-lite.sh                 # 启动精简测试环境
+    ├── test-lite.sh                  # 运行测试
+    └── stop-lite.sh                  # 停止测试环境
 ```
 
 ---
 
-## 给 AI 助手的说明
+## 技术栈
 
-如果你是 AI 助手（Claude Code / Cursor / Gemini 等），请按以下方式操作：
+- **CDC**: Debezium (Kafka Connect)
+- **消息队列**: Apache Kafka
+- **数据库**: MySQL 8.0
+- **缓存**: Redis
+- **应用**: Spring Boot
+- **容器**: Docker
 
-### 机器 A（外网）
-请阅读并执行 `outer-server/SETUP_MACHINE_A.md` 中的所有步骤。
+---
 
-### 机器 B（内网）
-请阅读并执行 `inner-server/SETUP_MACHINE_B.md` 中的所有步骤。
-
-**注意**：
-- 执行前请先确认本机 IP 地址
-- 需要知道对方机器的 IP 地址
-- 按步骤顺序执行，不要跳步
+*详细部署步骤、故障排查请参考 [DEPLOYMENT.md](./DEPLOYMENT.md)*
