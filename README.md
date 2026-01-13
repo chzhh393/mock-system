@@ -43,6 +43,85 @@
 
 ---
 
+## 耗时追踪
+
+系统内置了数据流耗时追踪功能，可以定位每个环节的性能瓶颈。
+
+### 追踪时间点
+
+```
+T1: scp0005 接收请求 (_trace_t1_scp0005_start)
+    ↓ [写入内网DB + CDC延迟]
+T3: scp0006 消费 Kafka (_trace_t3_scp0006_consume)
+    ↓ [调用目标服务]
+T4: 目标服务响应 (_trace_t4_target_respond)
+    ↓ [写入外网DB + CDC延迟]
+T6: outer-consumer 消费 Kafka
+```
+
+### 日志输出
+
+在 `outer-consumer` 日志中可以看到完整的耗时分布：
+
+```
+流水号:xxx, 【耗时分布】CDC延迟(内网)=182ms, 目标服务=64ms, CDC延迟(外网)=353ms, 总计=599ms
+```
+
+### 查看耗时日志
+
+```bash
+# 查看 outer-consumer 的耗时日志
+docker logs outer-consumer 2>&1 | grep "耗时分布"
+
+# 查看 scp0006 的 CDC 延迟和目标服务耗时
+docker logs scp0006 2>&1 | grep -E "(CDC延迟|目标服务耗时)"
+```
+
+### 典型耗时分布
+
+| 环节 | 典型耗时 | 说明 |
+|------|----------|------|
+| CDC延迟(内网) | 150-400ms | scp0005写入 → scp0006消费 |
+| 目标服务 | 50-100ms | 业务处理时间 |
+| CDC延迟(外网) | 300-500ms | scp0006写入 → outer-consumer消费 |
+| **总计** | **500-1000ms** | 不含 Redis 轮询 |
+
+> **注意**: CDC 延迟受 Debezium 轮询间隔影响，可通过调整 `poll.interval.ms` 参数优化。
+
+---
+
+## 性能测试
+
+### 使用 wrk 压测
+
+```bash
+cd perf-test
+
+# 运行默认压测（2线程，10并发，30秒）
+./run-test.sh
+
+# 自定义参数
+THREADS=4 CONNECTIONS=20 DURATION=60s ./run-test.sh
+```
+
+### 压测结果指标
+
+| 指标 | 说明 |
+|------|------|
+| Requests/sec | TPS（每秒请求数） |
+| Latency avg | 平均延迟 |
+| Latency 99% | P99 延迟 |
+| Non-2xx | 错误请求数 |
+
+### 基线性能
+
+当前系统基线性能（测试环境）：
+- **TPS**: ~10 请求/秒
+- **平均延迟**: ~1000ms
+- **主要瓶颈**: CDC 延迟
+
+---
+
 ## 快速开始
 
 详细部署步骤请参考 **[DEPLOYMENT.md](./DEPLOYMENT.md)**
@@ -92,6 +171,10 @@ mock-system/
 │   ├── init-debezium-connector.sh    # Debezium 连接器初始化
 │   ├── scp0006/                      # 内网穿透服务
 │   └── target-service/               # 模拟目标服务
+│
+├── perf-test/                         # 性能测试工具
+│   ├── run-test.sh                   # 一键压测脚本
+│   └── post.lua                      # wrk POST 请求脚本
 │
 └── local-e2e/                         # 本地端到端测试环境
     ├── start-lite.sh                 # 启动精简测试环境

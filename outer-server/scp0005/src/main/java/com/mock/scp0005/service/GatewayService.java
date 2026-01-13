@@ -2,6 +2,7 @@ package com.mock.scp0005.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.mock.scp0005.config.GatewayConfig;
 import com.mock.scp0005.model.InnerRequest;
 import lombok.RequiredArgsConstructor;
@@ -49,11 +50,13 @@ public class GatewayService {
         long startTime = System.currentTimeMillis();
         log.info("流水号:{}, 开始处理请求, channel={}, code={}", requestId, channel, code);
 
-        // 2. 解析 paramData 获取额外信息
-        String channelType = extractField(paramData, "channelType");
-        String serialNo = extractField(paramData, "serialNo");
-        String source = extractField(paramData, "source");
-        String target = extractField(paramData, "target");
+        // 2. 解析 paramData 获取额外信息，并添加追踪时间戳
+        String enrichedParamData = addTraceTimestamp(paramData, startTime);
+
+        String channelType = extractField(enrichedParamData, "channelType");
+        String serialNo = extractField(enrichedParamData, "serialNo");
+        String source = extractField(enrichedParamData, "source");
+        String target = extractField(enrichedParamData, "target");
 
         // 如果 serialNo 为空，使用 requestId
         if (serialNo == null || serialNo.isEmpty()) {
@@ -63,7 +66,7 @@ public class GatewayService {
         final String finalSerialNo = serialNo;
 
         // 3. 写入内网数据库请求表
-        return insertInnerRequest(requestId, code, paramData, channelType, finalSerialNo, source, target)
+        return insertInnerRequest(requestId, code, enrichedParamData, channelType, finalSerialNo, source, target)
                 .doOnSuccess(v -> log.info("流水号:{}, 请求已写入内网数据库", requestId))
                 .doOnError(e -> log.error("流水号:{}, 写入内网数据库失败: {}", requestId, e.getMessage()))
                 // 4. 轮询 Redis 等待结果
@@ -96,6 +99,20 @@ public class GatewayService {
         } catch (Exception e) {
             log.warn("解析 paramData 失败: {}", e.getMessage());
             return null;
+        }
+    }
+
+    /**
+     * 向 paramData 添加追踪时间戳
+     */
+    private String addTraceTimestamp(String paramData, long timestamp) {
+        try {
+            ObjectNode node = (ObjectNode) objectMapper.readTree(paramData);
+            node.put("_trace_t1_scp0005_start", timestamp);
+            return objectMapper.writeValueAsString(node);
+        } catch (Exception e) {
+            log.warn("添加追踪时间戳失败: {}", e.getMessage());
+            return paramData;
         }
     }
 

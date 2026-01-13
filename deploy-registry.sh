@@ -11,8 +11,8 @@ REGISTRY="192.168.123.66:5000"
 MACHINE_A="tcp://192.168.123.66:2375"
 MACHINE_B="tcp://192.168.123.81:2375"
 
-# Docker API 版本（解决版本不匹配问题）
-export DOCKER_API_VERSION=1.44
+# Docker API 版本（远程机器需要 1.44，本地构建不设置）
+# export DOCKER_API_VERSION=1.44
 
 # 颜色输出
 RED='\033[0;31m'

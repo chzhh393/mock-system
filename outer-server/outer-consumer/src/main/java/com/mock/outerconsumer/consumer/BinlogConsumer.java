@@ -1,5 +1,6 @@
 package com.mock.outerconsumer.consumer;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mock.outerconsumer.model.CanalMessage;
 import com.mock.outerconsumer.model.DebeziumMessage;
@@ -130,6 +131,9 @@ public class BinlogConsumer {
             return;
         }
 
+        // 记录 outer-consumer 消费时间 (t6)
+        long t6 = System.currentTimeMillis();
+
         log.info("流水号:{}, 收到响应, code={}", requestId, code);
 
         // 构建完整的响应 JSON
@@ -137,6 +141,46 @@ public class BinlogConsumer {
 
         // 写入 Redis
         redisService.writeResult(requestId, fullResponse);
+
+        // 输出完整的耗时分布
+        logTraceTimings(requestId, responseData, t6);
+    }
+
+    /**
+     * 输出完整的耗时分布日志
+     */
+    private void logTraceTimings(String requestId, String responseData, long t6) {
+        try {
+            if (responseData == null || responseData.isEmpty()) {
+                return;
+            }
+
+            JsonNode node = objectMapper.readTree(responseData);
+
+            long t1 = getTraceTimestamp(node, "_trace_t1_scp0005_start");
+            long t3 = getTraceTimestamp(node, "_trace_t3_scp0006_consume");
+            long t4 = getTraceTimestamp(node, "_trace_t4_target_respond");
+
+            if (t1 > 0 && t3 > 0 && t4 > 0) {
+                long cdcDelayInner = t3 - t1;       // CDC延迟(内网)
+                long targetServiceTime = t4 - t3;   // 目标服务耗时
+                long cdcDelayOuter = t6 - t4;       // CDC延迟(外网)
+                long totalTime = t6 - t1;           // 总耗时(不含Redis轮询)
+
+                log.info("流水号:{}, 【耗时分布】CDC延迟(内网)={}ms, 目标服务={}ms, CDC延迟(外网)={}ms, 总计={}ms",
+                        requestId, cdcDelayInner, targetServiceTime, cdcDelayOuter, totalTime);
+            }
+        } catch (Exception e) {
+            log.debug("解析追踪时间戳失败: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 从 JSON 节点获取追踪时间戳
+     */
+    private long getTraceTimestamp(JsonNode node, String fieldName) {
+        JsonNode fieldNode = node.get(fieldName);
+        return fieldNode != null ? fieldNode.asLong() : 0;
     }
 
     /**
