@@ -139,33 +139,25 @@ set -e
 cd /Users/shulie/mock-system/inner-server
 
 echo "=== 停止旧容器 ==="
-docker-compose down -v 2>/dev/null || true
+docker-compose down 2>/dev/null || true
 
 echo "=== 启动 MySQL 和 Kafka ==="
 docker-compose up -d mysql kafka
 
-echo "=== 等待服务就绪 (60秒) ==="
-sleep 60
+echo "=== 等待 MySQL 就绪 (30秒) ==="
+sleep 30
 
 echo "=== 检查服务状态 ==="
 docker-compose ps
 
-echo "=== 启动 Kafka Connect ==="
-docker-compose up -d kafka-connect
+echo "=== 启动 Canal ==="
+docker-compose up -d canal
 
-echo "=== 等待 Kafka Connect 就绪 ==="
-for i in {1..30}; do
-    if curl -s http://localhost:8083/connectors > /dev/null 2>&1; then
-        echo "Kafka Connect 就绪"
-        break
-    fi
-    echo "等待 Kafka Connect... ($i/30)"
-    sleep 5
-done
+echo "=== 等待 Canal 就绪 (20秒) ==="
+sleep 20
 
-echo "=== 创建 Debezium Connector ==="
-chmod +x ./init-debezium-connector.sh
-./init-debezium-connector.sh
+echo "=== 检查 Canal 日志 ==="
+docker logs canal-inner --tail 20 2>&1 | grep -E "(find start position|binlog|error)" || echo "Canal 启动中..."
 
 echo "=== 启动应用服务 ==="
 docker-compose up -d --build target-service scp0006
@@ -193,33 +185,25 @@ set -e
 cd /Users/shulie/mock-system/outer-server
 
 echo "=== 停止旧容器 ==="
-docker-compose down -v 2>/dev/null || true
+docker-compose down 2>/dev/null || true
 
 echo "=== 启动 MySQL, Redis 和 Kafka ==="
 docker-compose up -d mysql redis kafka
 
-echo "=== 等待服务就绪 (60秒) ==="
-sleep 60
+echo "=== 等待 MySQL 就绪 (30秒) ==="
+sleep 30
 
 echo "=== 检查服务状态 ==="
 docker-compose ps
 
-echo "=== 启动 Kafka Connect ==="
-docker-compose up -d kafka-connect
+echo "=== 启动 Canal ==="
+docker-compose up -d canal
 
-echo "=== 等待 Kafka Connect 就绪 ==="
-for i in {1..30}; do
-    if curl -s http://localhost:8083/connectors > /dev/null 2>&1; then
-        echo "Kafka Connect 就绪"
-        break
-    fi
-    echo "等待 Kafka Connect... ($i/30)"
-    sleep 5
-done
+echo "=== 等待 Canal 就绪 (20秒) ==="
+sleep 20
 
-echo "=== 创建 Debezium Connector ==="
-chmod +x ./init-debezium-connector.sh
-./init-debezium-connector.sh
+echo "=== 检查 Canal 日志 ==="
+docker logs canal-outer --tail 20 2>&1 | grep -E "(find start position|binlog|error)" || echo "Canal 启动中..."
 
 echo "=== 启动应用服务 ==="
 docker-compose up -d --build scp0005 outer-consumer
@@ -240,14 +224,35 @@ verify_deployment() {
     log_info "检查机器 B 服务状态..."
     do_ssh "$MACHINE_B_IP" "cd /Users/shulie/mock-system/inner-server && docker-compose ps"
 
-    log_info "检查机器 B Connector 状态..."
-    do_ssh "$MACHINE_B_IP" "curl -s http://localhost:8083/connectors/inner-mysql-connector/status | python3 -m json.tool 2>/dev/null || echo 'Connector 未就绪'"
+    log_info "检查机器 B Canal 状态..."
+    do_ssh "$MACHINE_B_IP" "docker logs canal-inner --tail 10 2>&1 | grep -E '(find start position|binlog|running)' || echo 'Canal 状态未知'"
 
     log_info "检查机器 A 服务状态..."
     do_ssh "$MACHINE_A_IP" "cd /Users/shulie/mock-system/outer-server && docker-compose ps"
 
-    log_info "检查机器 A Connector 状态..."
-    do_ssh "$MACHINE_A_IP" "curl -s http://localhost:8083/connectors/outer-mysql-connector/status | python3 -m json.tool 2>/dev/null || echo 'Connector 未就绪'"
+    log_info "检查机器 A Canal 状态..."
+    do_ssh "$MACHINE_A_IP" "docker logs canal-outer --tail 10 2>&1 | grep -E '(find start position|binlog|running)' || echo 'Canal 状态未知'"
+}
+
+# ==================== Canal 验证 ====================
+verify_canal() {
+    log_info "========== 验证 Canal 数据捕获 =========="
+
+    # 机器 B - 测试 inner_request 表
+    log_info "测试机器 B Canal (inner_request)..."
+    TEST_ID_B="verify-canal-b-$(date +%s)"
+    do_ssh "$MACHINE_B_IP" "docker exec mysql-inner mysql -uroot -proot123 inner_gateway -e \"INSERT INTO inner_request (request_id, code, param_data) VALUES ('$TEST_ID_B', 'test', '{\\\"verify\\\":\\\"canal\\\"}')\""
+    sleep 3
+    log_info "检查 Kafka topic..."
+    do_ssh "$MACHINE_B_IP" "docker exec kafka-inner timeout 5 kafka-console-consumer --bootstrap-server localhost:9092 --topic inner_request_binlog --from-beginning --max-messages 1 2>/dev/null || echo '未能消费消息'"
+
+    # 机器 A - 测试 outer_response 表
+    log_info "测试机器 A Canal (outer_response)..."
+    TEST_ID_A="verify-canal-a-$(date +%s)"
+    do_ssh "$MACHINE_A_IP" "docker exec mysql-outer mysql -uroot -proot123 outer_gateway -e \"INSERT INTO outer_response (request_id, response_data, response_code) VALUES ('$TEST_ID_A', '{\\\"verify\\\":\\\"canal\\\"}', '0000')\""
+    sleep 3
+    log_info "检查 Kafka topic..."
+    do_ssh "$MACHINE_A_IP" "docker exec kafka-outer timeout 5 kafka-console-consumer --bootstrap-server localhost:9092 --topic outer_response_binlog --from-beginning --max-messages 1 2>/dev/null || echo '未能消费消息'"
 }
 
 # ==================== 端到端测试 ====================
@@ -306,6 +311,14 @@ main() {
     sleep 30
 
     verify_deployment
+
+    # Canal 验证
+    echo ""
+    read -p "是否验证 Canal 数据捕获? (y/n) " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        verify_canal
+    fi
 
     # 可选: 端到端测试
     echo ""
