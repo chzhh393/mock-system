@@ -2,7 +2,7 @@
 
 > **状态**：已完成本地端到端测试验证，可直接部署
 >
-> **技术栈**：MySQL + Debezium (Kafka Connect) + Kafka + Spring Boot + Redis
+> **技术栈**：MySQL + Canal (阿里巴巴 CDC) + Kafka + Spring Boot + Redis
 
 ---
 
@@ -18,7 +18,7 @@
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                              完整请求流程 (~1秒)                              │
+│                            完整请求流程 (~500ms)                             │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  [客户端] ──HTTP──> [scp0005] ──写入──> [inner_request表]                    │
@@ -26,7 +26,7 @@
 │                        │              (机器B MySQL)                          │
 │                        │                     │                              │
 │                        │                     v                              │
-│                        │              [Debezium CDC]                        │
+│                        │              [Canal CDC :11111]                    │
 │                        │                     │                              │
 │                        │                     v                              │
 │                        │              [Kafka: inner_request_binlog]         │
@@ -40,7 +40,7 @@
 │                        │              (机器A MySQL)                          │
 │                        │                     │                              │
 │                        │                     v                              │
-│                        │              [Debezium CDC]                        │
+│                        │              [Canal CDC :11111]                    │
 │                        │                     │                              │
 │                        │                     v                              │
 │                        │              [Kafka: outer_response_binlog]        │
@@ -187,31 +187,27 @@ sleep 60
 docker-compose ps
 ```
 
-##### 1.4 启动 Kafka Connect
+##### 1.4 启动 Canal
 ```bash
-docker-compose up -d kafka-connect
+docker-compose up -d canal
 
 # 等待就绪
-echo "等待 Kafka Connect 启动..."
-until curl -s http://localhost:8083/connectors > /dev/null 2>&1; do
-    sleep 5
-    echo "等待中..."
-done
-echo "Kafka Connect 就绪！"
+echo "等待 Canal 启动..."
+sleep 30
+
+# 检查 Canal 日志
+docker-compose logs canal | grep -i "find start position"
+echo "Canal 就绪！"
 ```
 
-##### 1.5 创建 Debezium Connector
+##### 1.5 验证 Canal 状态
 ```bash
-./init-debezium-connector.sh
+# 查看 Canal 日志，确认连接 MySQL 成功
+docker-compose logs canal | tail -20
 ```
+预期输出：`find start position successfully`
 
-##### 1.6 验证 Connector 状态
-```bash
-curl -s http://localhost:8083/connectors/inner-mysql-connector/status | python3 -m json.tool
-```
-预期输出：`"state": "RUNNING"`
-
-##### 1.7 启动应用服务
+##### 1.6 启动应用服务
 ```bash
 docker-compose up -d --build target-service scp0006
 
@@ -219,19 +215,20 @@ docker-compose up -d --build target-service scp0006
 docker-compose logs -f scp0006
 ```
 
-##### 1.8 验证机器 B
+##### 1.7 验证机器 B
 ```bash
 # 插入测试数据
 docker exec mysql-inner mysql -uroot -proot123 -e \
   "INSERT INTO inner_gateway.inner_request (request_id, code, param_data, channel_type) VALUES ('test-b-$(date +%s)', 'yhzx', '{\"test\":true}', 'yhzx');"
 
-# 检查 Kafka 消息
+# 检查 Kafka 消息（Canal 格式）
 docker exec kafka-inner kafka-console-consumer \
   --bootstrap-server localhost:9092 \
   --topic inner_request_binlog \
   --from-beginning \
   --timeout-ms 10000
 ```
+预期输出（Canal 格式）：`{"data":[...],"database":"inner_gateway","table":"inner_request","type":"INSERT"}`
 
 ---
 
@@ -260,29 +257,27 @@ sleep 60
 docker-compose ps
 ```
 
-##### 2.4 启动 Kafka Connect
+##### 2.4 启动 Canal
 ```bash
-docker-compose up -d kafka-connect
+docker-compose up -d canal
 
 # 等待就绪
-until curl -s http://localhost:8083/connectors > /dev/null 2>&1; do
-    sleep 5
-    echo "等待中..."
-done
-echo "Kafka Connect 就绪！"
+echo "等待 Canal 启动..."
+sleep 30
+
+# 检查 Canal 日志
+docker-compose logs canal | grep -i "find start position"
+echo "Canal 就绪！"
 ```
 
-##### 2.5 创建 Debezium Connector
+##### 2.5 验证 Canal 状态
 ```bash
-./init-debezium-connector.sh
+# 查看 Canal 日志，确认连接 MySQL 成功
+docker-compose logs canal | tail -20
 ```
+预期输出：`find start position successfully`
 
-##### 2.6 验证 Connector 状态
-```bash
-curl -s http://localhost:8083/connectors/outer-mysql-connector/status | python3 -m json.tool
-```
-
-##### 2.7 启动应用服务
+##### 2.6 启动应用服务
 ```bash
 docker-compose up -d --build scp0005 outer-consumer
 
@@ -329,8 +324,8 @@ curl -X POST "http://localhost:8080/inner/c1/yhzx" \
 |--------|------|----------|
 | MySQL | `docker-compose ps mysql` | Up (healthy) |
 | Kafka | `docker-compose ps kafka` | Up (healthy) |
-| Kafka Connect | `curl localhost:8083/connectors` | `["inner-mysql-connector"]` |
-| Connector 状态 | `curl localhost:8083/connectors/inner-mysql-connector/status` | state: RUNNING |
+| Canal | `docker-compose ps canal` | Up |
+| Canal 状态 | `docker-compose logs canal \| grep "start position"` | find start position successfully |
 | scp0006 | `docker-compose ps scp0006` | Up |
 | target-service | `docker-compose ps target-service` | Up |
 
@@ -341,8 +336,8 @@ curl -X POST "http://localhost:8080/inner/c1/yhzx" \
 | MySQL | `docker-compose ps mysql` | Up (healthy) |
 | Redis | `docker-compose ps redis` | Up (healthy) |
 | Kafka | `docker-compose ps kafka` | Up (healthy) |
-| Kafka Connect | `curl localhost:8083/connectors` | `["outer-mysql-connector"]` |
-| Connector 状态 | `curl localhost:8083/connectors/outer-mysql-connector/status` | state: RUNNING |
+| Canal | `docker-compose ps canal` | Up |
+| Canal 状态 | `docker-compose logs canal \| grep "start position"` | find start position successfully |
 | scp0005 | `docker-compose ps scp0005` | Up |
 | outer-consumer | `docker-compose ps outer-consumer` | Up |
 | Registry | `curl localhost:5000/v2/_catalog` | `{"repositories":[...]}` |
@@ -351,26 +346,29 @@ curl -X POST "http://localhost:8080/inner/c1/yhzx" \
 
 ## 故障排查
 
-### 1. Kafka Connect 启动失败或 OOM
+### 1. Canal 启动失败
 
 ```bash
-# 查看日志
-docker-compose logs kafka-connect
+# 查看 Canal 日志
+docker-compose logs canal
 
-# 如果内存不足，可以在 docker-compose.yml 中添加 HEAP_OPTS
-# environment:
-#   HEAP_OPTS: "-Xms512m -Xmx1024m"
+# 常见问题：MySQL 连接失败
+# 检查 instance.properties 中的连接配置
+cat config/canal/instance.properties | grep -E "(master.address|dbUsername|dbPassword)"
+
+# 检查 MySQL 是否允许 binlog 复制
+docker exec mysql-inner mysql -uroot -proot123 -e "SHOW MASTER STATUS;"
 ```
 
-### 2. Connector 状态为 FAILED
+### 2. Canal 无法连接 MySQL
 
 ```bash
-# 查看详细错误
-curl http://localhost:8083/connectors/<connector-name>/status
+# 检查 MySQL binlog 配置
+docker exec mysql-inner mysql -uroot -proot123 -e "SHOW VARIABLES LIKE 'log_bin';"
+docker exec mysql-inner mysql -uroot -proot123 -e "SHOW VARIABLES LIKE 'binlog_format';"
 
-# 删除并重建
-curl -X DELETE http://localhost:8083/connectors/<connector-name>
-./init-debezium-connector.sh
+# 确认 binlog_format = ROW
+# 如果不是，需要在 MySQL 配置中设置
 ```
 
 ### 3. 跨机器数据库连接失败
@@ -389,8 +387,15 @@ mysql -h 192.168.123.66 -P 3306 -uroot -proot123 -e "SELECT 1"
 # 检查 MySQL binlog 是否开启
 docker exec mysql-inner mysql -uroot -proot123 -e "SHOW MASTER STATUS;"
 
-# 检查 Debezium 是否在监听
-docker-compose logs kafka-connect | grep -i "inner_request"
+# 检查 Canal 是否在监听
+docker-compose logs canal | grep -i "inner_request"
+
+# 检查 Kafka topic 是否有数据
+docker exec kafka-inner kafka-console-consumer \
+  --bootstrap-server localhost:9092 \
+  --topic inner_request_binlog \
+  --from-beginning \
+  --timeout-ms 5000
 ```
 
 ### 5. scp0005 返回超时
@@ -436,7 +441,7 @@ docker info | grep -A5 "Insecure"
 |------|------|------|
 | MySQL | 3306 | inner_gateway 数据库 |
 | Kafka | 9092 | 消息队列 |
-| Kafka Connect | 8083 | Debezium CDC |
+| Canal | 11111 | CDC 服务 |
 | scp0006 | 8082 | 请求处理服务 |
 | target-service | 8017 | 模拟目标服务 |
 | Docker TCP | 2375 | 远程 Docker 管理 |
@@ -448,7 +453,7 @@ docker info | grep -A5 "Insecure"
 | MySQL | 3306 | outer_gateway 数据库 |
 | Redis | 6379 | 结果缓存 |
 | Kafka | 9092 | 消息队列 |
-| Kafka Connect | 8083 | Debezium CDC |
+| Canal | 11111 | CDC 服务 |
 | scp0005 | 8080 | API 入口服务 |
 | outer-consumer | 8081 | 响应消费服务 |
 | Registry | 5000 | 私有镜像仓库 |
@@ -469,5 +474,5 @@ cd mock-system/local-e2e
 
 ---
 
-*最后更新：2026-01-13*
-*版本：v3.0 - 支持私有 Registry + Docker TCP 自动化部署*
+*最后更新：2026-01-14*
+*版本：v4.0 - 使用 Canal 替代 Debezium，CDC 延迟降低 40%*

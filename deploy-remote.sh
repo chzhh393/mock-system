@@ -23,47 +23,68 @@ log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
-# ==================== 检查依赖 ====================
-check_dependencies() {
-    log_info "检查依赖..."
+# ==================== 认证模式检测 ====================
+# AUTH_MODE: key (密钥), sshpass (自动密码), password (手动密码)
+AUTH_MODE=""
 
-    if command -v sshpass &> /dev/null; then
-        USE_SSHPASS=true
-        log_info "检测到 sshpass，将使用自动密码输入"
-    else
-        USE_SSHPASS=false
-        log_warn "未安装 sshpass，每次 SSH/SCP 操作都需要输入密码"
-        log_info "可通过 'brew install sshpass' 安装 (需要先 brew install hudochenkov/sshpass/sshpass)"
+detect_auth_mode() {
+    log_info "检测认证模式..."
+
+    # 1. 先测试密钥认证
+    if ssh -o StrictHostKeyChecking=no -o BatchMode=yes -o ConnectTimeout=5 "$SSH_USER@$MACHINE_A_IP" "exit" 2>/dev/null; then
+        AUTH_MODE="key"
+        log_info "✓ 检测到 SSH 密钥认证可用"
+        return
     fi
-}
 
-# ==================== 获取密码 ====================
-get_password() {
-    if [ "$USE_SSHPASS" = true ]; then
+    # 2. 检查是否有 sshpass
+    if command -v sshpass &> /dev/null; then
+        AUTH_MODE="sshpass"
+        log_info "✓ 检测到 sshpass，将使用自动密码输入"
         echo -n "请输入 SSH 密码: "
         read -s SSH_PASSWORD
         echo
         export SSHPASS="$SSH_PASSWORD"
+        return
     fi
+
+    # 3. 回退到手动密码模式
+    AUTH_MODE="password"
+    log_warn "未配置密钥且无 sshpass，每次 SSH/SCP 操作都需要输入密码"
+    log_info "提示: 可通过以下方式避免重复输入密码:"
+    log_info "  - 配置密钥: ssh-copy-id $SSH_USER@$MACHINE_A_IP"
+    log_info "  - 安装 sshpass: brew install hudochenkov/sshpass/sshpass"
 }
 
 # ==================== SSH/SCP 包装函数 ====================
 do_ssh() {
     local host=$1
     shift
-    if [ "$USE_SSHPASS" = true ]; then
-        sshpass -e ssh -o StrictHostKeyChecking=no "$SSH_USER@$host" "$@"
-    else
-        ssh -o StrictHostKeyChecking=no "$SSH_USER@$host" "$@"
-    fi
+    case "$AUTH_MODE" in
+        key)
+            ssh -o StrictHostKeyChecking=no "$SSH_USER@$host" "$@"
+            ;;
+        sshpass)
+            sshpass -e ssh -o StrictHostKeyChecking=no "$SSH_USER@$host" "$@"
+            ;;
+        password)
+            ssh -o StrictHostKeyChecking=no "$SSH_USER@$host" "$@"
+            ;;
+    esac
 }
 
 do_scp() {
-    if [ "$USE_SSHPASS" = true ]; then
-        sshpass -e scp -o StrictHostKeyChecking=no "$@"
-    else
-        scp -o StrictHostKeyChecking=no "$@"
-    fi
+    case "$AUTH_MODE" in
+        key)
+            scp -o StrictHostKeyChecking=no "$@"
+            ;;
+        sshpass)
+            sshpass -e scp -o StrictHostKeyChecking=no "$@"
+            ;;
+        password)
+            scp -o StrictHostKeyChecking=no "$@"
+            ;;
+    esac
 }
 
 # ==================== 测试连接 ====================
@@ -95,7 +116,7 @@ transfer_code() {
     log_info "传输 $folder 到 $name..."
 
     # 使用 rsync 如果可用，否则用 tar + scp
-    if command -v rsync &> /dev/null && [ "$USE_SSHPASS" = false ]; then
+    if command -v rsync &> /dev/null; then
         rsync -avz --delete \
             --exclude 'target/' \
             --exclude 'node_modules/' \
@@ -284,8 +305,8 @@ main() {
     echo "部署路径: $REMOTE_PATH"
     echo ""
 
-    check_dependencies
-    get_password
+    # 检测认证模式
+    detect_auth_mode
 
     # 测试连接
     if ! test_connection "$MACHINE_B_IP" "机器B"; then

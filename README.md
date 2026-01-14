@@ -21,8 +21,8 @@
 │                                     │     │                                     │
 │  中间件:                             │     │  中间件:                             │
 │  ├─ Redis                   :6379   │     │  ├─ Kafka                   :9092   │
-│  ├─ Kafka                   :9092   │     │  └─ Kafka Connect (Debezium):8083   │
-│  ├─ Kafka Connect (Debezium):8083   │     │                                     │
+│  ├─ Kafka                   :9092   │     │  └─ Canal (CDC)            :11111   │
+│  ├─ Canal (CDC)            :11111   │     │                                     │
 │  └─ Registry (私有镜像仓库) :5000   │     │                                     │
 │                                     │     │                                     │
 └─────────────────────────────────────┘     └─────────────────────────────────────┘
@@ -33,10 +33,10 @@
 ```
 1. 客户端 → scp0005 (机器A)
 2. scp0005 → INSERT → 机器B的MySQL(请求表)
-3. 机器B的 Debezium 监听 Binlog → Kafka (inner_request_binlog)
+3. 机器B的 Canal 监听 Binlog → Kafka (inner_request_binlog)
 4. scp0006 消费 Kafka → 调用 target-service
 5. scp0006 → INSERT → 机器A的MySQL(响应表)
-6. 机器A的 Debezium 监听 Binlog → Kafka (outer_response_binlog)
+6. 机器A的 Canal 监听 Binlog → Kafka (outer_response_binlog)
 7. outer-consumer 消费 → 写入 Redis
 8. scp0005 从 Redis 获取结果 → 返回客户端
 ```
@@ -59,14 +59,6 @@ T4: 目标服务响应 (_trace_t4_target_respond)
 T6: outer-consumer 消费 Kafka
 ```
 
-### 日志输出
-
-在 `outer-consumer` 日志中可以看到完整的耗时分布：
-
-```
-流水号:xxx, 【耗时分布】CDC延迟(内网)=182ms, 目标服务=64ms, CDC延迟(外网)=353ms, 总计=599ms
-```
-
 ### 查看耗时日志
 
 ```bash
@@ -76,17 +68,6 @@ docker logs outer-consumer 2>&1 | grep "耗时分布"
 # 查看 scp0006 的 CDC 延迟和目标服务耗时
 docker logs scp0006 2>&1 | grep -E "(CDC延迟|目标服务耗时)"
 ```
-
-### 典型耗时分布
-
-| 环节 | 典型耗时 | 说明 |
-|------|----------|------|
-| CDC延迟(内网) | 150-400ms | scp0005写入 → scp0006消费 |
-| 目标服务 | 50-100ms | 业务处理时间 |
-| CDC延迟(外网) | 300-500ms | scp0006写入 → outer-consumer消费 |
-| **总计** | **500-1000ms** | 不含 Redis 轮询 |
-
-> **注意**: CDC 延迟受 Debezium 轮询间隔影响，可通过调整 `poll.interval.ms` 参数优化。
 
 ---
 
@@ -113,12 +94,7 @@ THREADS=4 CONNECTIONS=20 DURATION=60s ./run-test.sh
 | Latency 99% | P99 延迟 |
 | Non-2xx | 错误请求数 |
 
-### 基线性能
-
-当前系统基线性能（测试环境）：
-- **TPS**: ~10 请求/秒
-- **平均延迟**: ~1000ms
-- **主要瓶颈**: CDC 延迟
+> 详细测试结果请查看 `perf-test/test-result-*.md`
 
 ---
 
@@ -162,13 +138,13 @@ mock-system/
 │
 ├── outer-server/                      # 机器 A（外网）部署文件
 │   ├── docker-compose.yml            # Docker Compose 配置
-│   ├── init-debezium-connector.sh    # Debezium 连接器初始化
+│   ├── config/canal/                 # Canal CDC 配置
 │   ├── scp0005/                      # 外网网关服务
 │   └── outer-consumer/               # 响应消费服务
 │
 ├── inner-server/                      # 机器 B（内网）部署文件
 │   ├── docker-compose.yml            # Docker Compose 配置
-│   ├── init-debezium-connector.sh    # Debezium 连接器初始化
+│   ├── config/canal/                 # Canal CDC 配置
 │   ├── scp0006/                      # 内网穿透服务
 │   └── target-service/               # 模拟目标服务
 │
@@ -186,7 +162,7 @@ mock-system/
 
 ## 技术栈
 
-- **CDC**: Debezium (Kafka Connect)
+- **CDC**: Canal (阿里巴巴开源)
 - **消息队列**: Apache Kafka
 - **数据库**: MySQL 8.0
 - **缓存**: Redis
