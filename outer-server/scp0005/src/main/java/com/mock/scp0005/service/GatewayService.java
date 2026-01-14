@@ -7,12 +7,10 @@ import com.mock.scp0005.config.GatewayConfig;
 import com.mock.scp0005.model.InnerRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.redis.core.ReactiveStringRedisTemplate;
 import org.springframework.r2dbc.core.DatabaseClient;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -22,7 +20,7 @@ import java.util.UUID;
  * 核心流程：
  * 1. 生成唯一 request_id
  * 2. 将请求写入【内网】数据库的请求表
- * 3. 轮询 Redis 等待结果
+ * 3. 等待 HTTP 回调结果（使用 Sinks 异步机制，替代 Redis 轮询）
  * 4. 返回结果
  */
 @Slf4j
@@ -31,8 +29,8 @@ import java.util.UUID;
 public class GatewayService {
 
     private final DatabaseClient databaseClient;
-    private final ReactiveStringRedisTemplate redisTemplate;
     private final GatewayConfig gatewayConfig;
+    private final PendingRequestManager pendingRequestManager;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
@@ -69,8 +67,8 @@ public class GatewayService {
         return insertInnerRequest(requestId, code, enrichedParamData, channelType, finalSerialNo, source, target)
                 .doOnSuccess(v -> log.info("流水号:{}, 请求已写入内网数据库", requestId))
                 .doOnError(e -> log.error("流水号:{}, 写入内网数据库失败: {}", requestId, e.getMessage()))
-                // 4. 轮询 Redis 等待结果
-                .then(pollRedisResult(requestId))
+                // 4. 等待回调结果（使用 Sinks 替代 Redis 轮询）
+                .then(pendingRequestManager.waitForResult(requestId, gatewayConfig.getPollTimeoutMs()))
                 .doOnSuccess(result -> {
                     long elapsed = System.currentTimeMillis() - startTime;
                     log.info("流水号:{}, 请求处理完成, 耗时={}ms", requestId, elapsed);
@@ -143,26 +141,4 @@ public class GatewayService {
                 .then();
     }
 
-    /**
-     * 轮询 Redis 等待结果
-     */
-    private Mono<String> pollRedisResult(String requestId) {
-        String redisKey = gatewayConfig.getResultKeyPrefix() + requestId;
-        long timeoutMs = gatewayConfig.getPollTimeoutMs();
-        long intervalMs = gatewayConfig.getPollIntervalMs();
-
-        log.debug("流水号:{}, 开始轮询 Redis, key={}, timeout={}ms", requestId, redisKey, timeoutMs);
-
-        return Mono.defer(() -> redisTemplate.opsForValue().get(redisKey))
-                .repeatWhenEmpty(repeat -> repeat
-                        .delayElements(Duration.ofMillis(intervalMs))
-                        .take(timeoutMs / intervalMs))
-                .timeout(Duration.ofMillis(timeoutMs))
-                .switchIfEmpty(Mono.error(new RuntimeException("等待响应超时")))
-                .doOnSuccess(result -> {
-                    // 获取结果后删除 Redis 中的数据
-                    redisTemplate.delete(redisKey).subscribe();
-                    log.debug("流水号:{}, 从 Redis 获取到结果", requestId);
-                });
-    }
 }

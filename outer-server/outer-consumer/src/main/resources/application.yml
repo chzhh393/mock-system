@@ -41,6 +41,15 @@ consumer:
   # Redis key 过期时间（秒）
   result-expire-seconds: 300
 
+# 回调配置
+callback:
+  # scp0005 服务地址
+  url: ${CALLBACK_URL:http://scp0005:8080}
+  # 是否启用回调（可用于切换回 Redis 轮询模式）
+  enabled: ${CALLBACK_ENABLED:true}
+  # 回调线程池大小
+  thread-pool-size: ${CALLBACK_THREAD_POOL_SIZE:10}
+
 # 日志配置
 logging:
   level:

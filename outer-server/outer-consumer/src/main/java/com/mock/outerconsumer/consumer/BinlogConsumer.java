@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mock.outerconsumer.model.CanalMessage;
 import com.mock.outerconsumer.model.DebeziumMessage;
+import com.mock.outerconsumer.service.CallbackService;
 import com.mock.outerconsumer.service.RedisService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,6 +27,7 @@ import java.util.Map;
 public class BinlogConsumer {
 
     private final RedisService redisService;
+    private final CallbackService callbackService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
@@ -139,8 +141,11 @@ public class BinlogConsumer {
         // 构建完整的响应 JSON
         String fullResponse = buildResponseJson(responseData, code, message);
 
-        // 写入 Redis
+        // 写入 Redis（保留作为备份）
         redisService.writeResult(requestId, fullResponse);
+
+        // 发送 HTTP 回调通知 scp0005
+        callbackService.sendCallback(requestId, fullResponse);
 
         // 输出完整的耗时分布
         logTraceTimings(requestId, responseData, t6);
@@ -212,8 +217,11 @@ public class BinlogConsumer {
         // 构建完整的响应 JSON
         String fullResponse = buildResponseJson(responseData, code, message);
 
-        // 写入 Redis
+        // 写入 Redis（保留作为备份）
         redisService.writeResult(requestId, fullResponse);
+
+        // 发送 HTTP 回调通知 scp0005
+        callbackService.sendCallback(requestId, fullResponse);
     }
 
     /**
