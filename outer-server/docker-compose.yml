@@ -138,6 +138,9 @@ services:
       - "KAFKA_TOPIC=outer_response_binlog"
       # Redis key 前缀 - 与 scp0005 保持一致
       - "RESULT_KEY_PREFIX=gateway:result:"
+      # 回调配置 - HTTP 回调替代 Redis 轮询
+      - "CALLBACK_URL=http://scp0005:8080"
+      - "CALLBACK_ENABLED=true"
     depends_on:
       redis:
         condition: service_healthy
