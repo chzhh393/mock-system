@@ -96,9 +96,9 @@ services:
     ports:
       - "8082:8082"
     environment:
-      # 连接【外网】MySQL（机器A）- 通过端口转发
-      - OUTER_DB_HOST=host.docker.internal
-      - OUTER_DB_PORT=3307
+      # 连接【外网】MySQL（机器A）
+      - OUTER_DB_HOST=192.168.123.66
+      - OUTER_DB_PORT=3306
       - OUTER_DB_NAME=outer_gateway
       - OUTER_DB_USER=root
       - OUTER_DB_PASSWORD=root123
@@ -106,7 +106,7 @@ services:
       - KAFKA_BOOTSTRAP=kafka:9092
       - KAFKA_TOPIC=inner_request_binlog
       # 本机目标服务
-      - TARGET_SERVICE_URL=http://target-service:8017
+      - TARGET_SERVICE_URL=http://target-service:8083
     depends_on:
       mysql:
         condition: service_healthy
@@ -121,9 +121,9 @@ services:
     build: ./target-service
     container_name: target-service
     ports:
-      - "8017:8017"
+      - "8083:8083"
     environment:
-      - SERVER_PORT=8017
+      - SERVER_PORT=8083
       # Mock 配置
       - MOCK_DELAY_MS=50
       - MOCK_ERROR_RATE=0
