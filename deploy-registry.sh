@@ -24,6 +24,21 @@ log_info() { echo -e "${GREEN}[INFO]${NC} $1"; }
 log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
+# ==================== 同步配置 ====================
+sync_configs() {
+    log_info "同步配置文件到远程机器..."
+
+    # 同步 outer-server 到机器A
+    rsync -avz --exclude='target/' --exclude='*.jar' \
+        ./outer-server/ shulie@192.168.123.66:/Users/shulie/mock-system/outer-server/
+
+    # 同步 inner-server 到机器B
+    rsync -avz --exclude='target/' --exclude='*.jar' \
+        ./inner-server/ shulie@192.168.123.81:/Users/shulie/mock-system/inner-server/
+
+    log_info "✓ 配置同步完成"
+}
+
 # ==================== 检查连接 ====================
 check_connections() {
     log_info "检查连接..."
@@ -107,6 +122,11 @@ main() {
 
     check_connections
 
+    # 同步配置文件 (status 和 images 命令除外)
+    if [[ "$cmd" != "status" && "$cmd" != "images" ]]; then
+        sync_configs
+    fi
+
     case $cmd in
         "all")
             # 构建并推送所有镜像
@@ -124,7 +144,7 @@ main() {
             # 部署到机器 B
             log_info "========== 部署到机器 B =========="
             deploy_to "$MACHINE_B" "scp0006" "8082:8082"
-            deploy_to "$MACHINE_B" "target-service" "8017:8017"
+            deploy_to "$MACHINE_B" "target-service" "8084:8083"
             ;;
 
         "outer")
@@ -140,7 +160,7 @@ main() {
             build_and_push "inner-server/scp0006" "scp0006"
             build_and_push "inner-server/target-service" "target-service"
             deploy_to "$MACHINE_B" "scp0006" "8082:8082"
-            deploy_to "$MACHINE_B" "target-service" "8017:8017"
+            deploy_to "$MACHINE_B" "target-service" "8084:8083"
             ;;
 
         "status")
