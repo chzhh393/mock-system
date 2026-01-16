@@ -19,8 +19,10 @@ FROM docker.m.daocloud.io/library/eclipse-temurin:17-jre
 
 WORKDIR /app
 
-# 安装诊断工具
-RUN apt-get update && apt-get install -y netcat-openbsd
+# 更换apt源并安装诊断工具
+RUN sed -i 's|http://ports.ubuntu.com/ubuntu-ports|https://mirrors.aliyun.com/ubuntu-ports|g' /etc/apt/sources.list && \
+    apt-get update && \
+    apt-get install -y netcat-openbsd
 
 # 从构建阶段复制 jar 文件
 COPY --from=builder /app/target/*.jar app.jar
