@@ -69,7 +69,7 @@ setup_machine_b() {
         log_info "机器 B 基础服务已在运行"
     else
         log_warn "请先在机器 B 上通过 docker-compose 启动基础服务:"
-        echo "  cd /path/to/mock-system/inner-server"
+        echo "  cd /home/ubuntu/mock-system/inner-server"
         echo "  docker-compose up -d mysql kafka canal"
         log_error "基础服务未启动，请先手动启动"
         return 1
@@ -108,7 +108,7 @@ setup_machine_a() {
         log_info "机器 A 基础服务已在运行"
     else
         log_warn "请先在机器 A 上通过 docker-compose 启动基础服务:"
-        echo "  cd /path/to/mock-system/outer-server"
+        echo "  cd /home/ubuntu/mock-system/outer-server"
         echo "  docker-compose up -d mysql redis kafka canal"
         log_error "基础服务未启动，请先手动启动"
         return 1
@@ -211,6 +211,30 @@ verify_environment() {
             all_ok=false
         fi
     done
+
+    # 检查 Kafka 网络配置（关键：应用服务需要通过容器名访问 Kafka）
+    echo ""
+    echo "网络配置检查:"
+
+    # 检查 kafka-inner 是否在 inner-server_inner_net 网络
+    local kafka_inner_nets=$(docker -H $MACHINE_B inspect kafka-inner --format '{{range $key, $value := .NetworkSettings.Networks}}{{$key}} {{end}}' 2>/dev/null || echo "")
+    if echo "$kafka_inner_nets" | grep -q "inner-server_inner_net"; then
+        echo -e "  kafka-inner 网络: ${GREEN}正确 (inner-server_inner_net)${NC}"
+    else
+        echo -e "  kafka-inner 网络: ${YELLOW}修复中...${NC}"
+        docker -H $MACHINE_B network connect inner-server_inner_net kafka-inner 2>/dev/null || true
+        echo -e "  kafka-inner 网络: ${GREEN}已加入 inner-server_inner_net${NC}"
+    fi
+
+    # 检查 kafka-outer 是否在 outer-server_outer_net 网络
+    local kafka_outer_nets=$(docker -H $MACHINE_A inspect kafka-outer --format '{{range $key, $value := .NetworkSettings.Networks}}{{$key}} {{end}}' 2>/dev/null || echo "")
+    if echo "$kafka_outer_nets" | grep -q "outer-server_outer_net"; then
+        echo -e "  kafka-outer 网络: ${GREEN}正确 (outer-server_outer_net)${NC}"
+    else
+        echo -e "  kafka-outer 网络: ${YELLOW}修复中...${NC}"
+        docker -H $MACHINE_A network connect outer-server_outer_net kafka-outer 2>/dev/null || true
+        echo -e "  kafka-outer 网络: ${GREEN}已加入 outer-server_outer_net${NC}"
+    fi
 
     echo ""
 

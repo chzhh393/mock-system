@@ -44,6 +44,7 @@
 
 ### phase=1: 环境就绪
 
+- 执行 `./setup-base-env.sh verify` 验证基础环境
 - 执行 `./deploy-registry.sh status` 检查服务状态（应有 4 个应用服务 + 基础服务运行中）
 - 执行 `./deploy-registry.sh test` 验证端到端请求
 - 【退出条件】测试返回 `code: 200` → phase=2
