@@ -15,15 +15,15 @@ public class GatewayConfig {
     /**
      * 轮询 Redis 等待结果的超时时间（毫秒）
      */
-    private long pollTimeoutMs = 30000;
+    private long pollTimeoutMs;
 
     /**
      * 轮询间隔（毫秒）
      */
-    private long pollIntervalMs = 100;
+    private long pollIntervalMs;
 
     /**
      * Redis 结果 key 前缀
      */
-    private String resultKeyPrefix = "gateway:result:";
+    private String resultKeyPrefix;
 }

@@ -61,11 +61,15 @@
 
 - 修改 target-service 延迟 = 30000ms（慢接口）：
   ```bash
-  # 修改 inner-server/target-service/src/main/resources/application.yml
-  # 将 mock.delay-ms: 50 改为 mock.delay-ms: 30000
-  # 或者直接修改 inner-server/docker-compose.yml 中的 MOCK_DELAY_MS 环境变量
+  # 推荐：动态 API 修改（无需重新部署）
+  curl -X POST "http://192.168.123.81:8083/api/stats/config?delayMs=30000"
+
+  # 验证配置
+  curl "http://192.168.123.81:8083/api/stats/config"
+
+  # 恢复正常延迟
+  curl -X POST "http://192.168.123.81:8083/api/stats/config?delayMs=50"
   ```
-- 部署：`./deploy-registry.sh inner`
 - 执行压测：`cd perf-test && THREADS=2 CONNECTIONS=20 DURATION=120s ./run-test.sh`
 - 记录 bottleneck: {tps, avg_latency, max_latency, error_rate}
 - 【退出条件】满足任一：TPS < 基线×20% 或 错误率 > 50% 或 最大延迟 > 60s → phase=4

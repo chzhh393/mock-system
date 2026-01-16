@@ -67,9 +67,10 @@ deploy_scp0005() {
     docker -H $MACHINE_A stop scp0005 2>/dev/null || true
     docker -H $MACHINE_A rm scp0005 2>/dev/null || true
 
-    # 启动容器，使用 IP 地址配置
+    # 启动容器，使用 IP 地址配置，直接加入网络
     docker -H $MACHINE_A run -d \
         --name scp0005 \
+        --network $OUTER_NET \
         -p 8080:8080 \
         -e INNER_DB_HOST=$MACHINE_B_IP \
         -e INNER_DB_PORT=3306 \
@@ -80,9 +81,7 @@ deploy_scp0005() {
         -e REDIS_PORT=6379 \
         $REGISTRY/scp0005:latest
 
-    # 连接到 docker-compose 网络（用于访问 redis）
-    docker -H $MACHINE_A network connect $OUTER_NET scp0005 2>/dev/null || true
-    log_info "scp0005 已部署并连接到网络"
+    log_info "scp0005 已部署并加入 $OUTER_NET 网络"
 }
 
 deploy_outer_consumer() {
@@ -91,20 +90,19 @@ deploy_outer_consumer() {
     docker -H $MACHINE_A stop outer-consumer 2>/dev/null || true
     docker -H $MACHINE_A rm outer-consumer 2>/dev/null || true
 
-    # 启动容器，使用容器名配置（同一网络内可解析）
+    # 启动容器，直接加入网络（同一网络内可解析容器名）
     docker -H $MACHINE_A run -d \
         --name outer-consumer \
+        --network $OUTER_NET \
         -p 8081:8081 \
         -e REDIS_HOST=redis \
         -e REDIS_PORT=6379 \
-        -e KAFKA_BOOTSTRAP=kafka:9092 \
+        -e KAFKA_BOOTSTRAP=kafka-outer:9092 \
         -e KAFKA_TOPIC=outer_response_binlog \
         -e RESULT_KEY_PREFIX=gateway:result: \
         $REGISTRY/outer-consumer:latest
 
-    # 连接到 docker-compose 网络
-    docker -H $MACHINE_A network connect $OUTER_NET outer-consumer 2>/dev/null || true
-    log_info "outer-consumer 已部署并连接到网络"
+    log_info "outer-consumer 已部署并加入 $OUTER_NET 网络"
 }
 
 # ==================== 部署机器 B 服务 ====================
@@ -114,23 +112,22 @@ deploy_scp0006() {
     docker -H $MACHINE_B stop scp0006 2>/dev/null || true
     docker -H $MACHINE_B rm scp0006 2>/dev/null || true
 
-    # 启动容器
+    # 启动容器，直接加入网络（用于访问 kafka 和 target-service）
     docker -H $MACHINE_B run -d \
         --name scp0006 \
+        --network $INNER_NET \
         -p 8082:8082 \
         -e OUTER_DB_HOST=$MACHINE_A_IP \
         -e OUTER_DB_PORT=3306 \
         -e OUTER_DB_NAME=outer_gateway \
         -e OUTER_DB_USER=root \
         -e OUTER_DB_PASSWORD=root123 \
-        -e KAFKA_BOOTSTRAP=kafka:9092 \
+        -e KAFKA_BOOTSTRAP=kafka-inner:9092 \
         -e KAFKA_TOPIC=inner_request_binlog \
         -e TARGET_SERVICE_URL=http://target-service:8083 \
         $REGISTRY/scp0006:latest
 
-    # 连接到 docker-compose 网络（用于访问 kafka 和 target-service）
-    docker -H $MACHINE_B network connect $INNER_NET scp0006 2>/dev/null || true
-    log_info "scp0006 已部署并连接到网络"
+    log_info "scp0006 已部署并加入 $INNER_NET 网络"
 }
 
 deploy_target_service() {
@@ -139,18 +136,17 @@ deploy_target_service() {
     docker -H $MACHINE_B stop target-service 2>/dev/null || true
     docker -H $MACHINE_B rm target-service 2>/dev/null || true
 
-    # 启动容器
+    # 启动容器，直接加入网络
     docker -H $MACHINE_B run -d \
         --name target-service \
+        --network $INNER_NET \
         -p 8083:8083 \
         -e SERVER_PORT=8083 \
         -e MOCK_DELAY_MS=50 \
         -e MOCK_ERROR_RATE=0 \
         $REGISTRY/target-service:latest
 
-    # 连接到 docker-compose 网络
-    docker -H $MACHINE_B network connect $INNER_NET target-service 2>/dev/null || true
-    log_info "target-service 已部署并连接到网络"
+    log_info "target-service 已部署并加入 $INNER_NET 网络"
 }
 
 # ==================== 端到端测试 ====================
