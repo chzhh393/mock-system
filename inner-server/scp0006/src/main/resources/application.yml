@@ -44,9 +44,9 @@ gateway:
 logging:
   level:
     root: INFO
-    com.mock.scp0006: DEBUG
+    com.mock.scp0006: INFO
     org.springframework.kafka: INFO
-    org.springframework.jdbc: DEBUG
+    org.springframework.jdbc: WARN
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
 

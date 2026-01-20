@@ -43,8 +43,8 @@ gateway:
 logging:
   level:
     root: INFO
-    com.mock.scp0005: DEBUG
-    org.springframework.r2dbc: DEBUG
+    com.mock.scp0005: INFO
+    org.springframework.r2dbc: WARN
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
 
