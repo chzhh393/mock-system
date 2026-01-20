@@ -47,13 +47,13 @@ public class MockBusinessService {
         totalRequests.incrementAndGet();
         codeStats.computeIfAbsent(code, k -> new AtomicLong(0)).incrementAndGet();
 
-        // 1. 模拟处理延迟
-        simulateDelay();
+        // 1. 模拟处理延迟（按 code 区分）
+        simulateDelay(code);
 
         // 2. 模拟随机错误
-        if (shouldSimulateError()) {
+        if (shouldSimulateError(code)) {
             errorRequests.incrementAndGet();
-            throw new RuntimeException("模拟业务处理错误");
+            throw new RuntimeException("模拟业务处理错误: 服务[" + code + "]");
         }
 
         // 3. 根据 code 路由到不同的处理逻辑
@@ -141,10 +141,28 @@ public class MockBusinessService {
     }
 
     /**
-     * 模拟处理延迟
+     * 模拟处理延迟（按 code 区分）
+     *
+     * 根据配置的服务延迟范围生成随机延迟，更真实地模拟不同服务的响应时间
      */
-    private void simulateDelay() {
-        long delayMs = mockConfig.getDelayMs();
+    private void simulateDelay(String code) {
+        long delayMs;
+
+        // 查找服务专属配置
+        MockConfig.ServiceDelay serviceDelay = mockConfig.getServices().get(code);
+
+        if (serviceDelay != null) {
+            // 使用服务专属延迟配置（随机范围）
+            long minMs = serviceDelay.getMinMs();
+            long maxMs = serviceDelay.getMaxMs();
+            delayMs = minMs + (maxMs > minMs ? random.nextLong(maxMs - minMs) : 0);
+            log.debug("服务[{}] 使用专属延迟配置: {}ms (范围: {}-{}ms)", code, delayMs, minMs, maxMs);
+        } else {
+            // 使用默认延迟
+            delayMs = mockConfig.getDelayMs();
+            log.debug("服务[{}] 使用默认延迟: {}ms", code, delayMs);
+        }
+
         if (delayMs > 0) {
             try {
                 Thread.sleep(delayMs);
@@ -155,15 +173,25 @@ public class MockBusinessService {
     }
 
     /**
-     * 判断是否模拟错误
+     * 判断是否模拟错误（支持服务级别的错误率配置）
      */
-    private boolean shouldSimulateError() {
-        int errorRate = mockConfig.getErrorRate();
+    private boolean shouldSimulateError(String code) {
+        int errorRate;
+
+        // 查找服务专属配置
+        MockConfig.ServiceDelay serviceDelay = mockConfig.getServices().get(code);
+        if (serviceDelay != null && serviceDelay.getErrorRate() >= 0) {
+            errorRate = serviceDelay.getErrorRate();
+        } else {
+            errorRate = mockConfig.getErrorRate();
+        }
+
         if (errorRate <= 0) {
             return false;
         }
         return random.nextInt(100) < errorRate;
     }
+
 
     /**
      * 获取统计数据

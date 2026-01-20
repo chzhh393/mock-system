@@ -16,7 +16,7 @@ spring:
       enable-auto-commit: false
     listener:
       ack-mode: manual_immediate
-      concurrency: 3
+      concurrency: 10
 
   # 外网数据库配置 - 写入响应表（通过强隔离装置穿透）
   datasource:
@@ -37,8 +37,8 @@ gateway:
   topic: ${KAFKA_TOPIC:inner_request_binlog}
   # 目标服务地址
   target-service-url: ${TARGET_SERVICE_URL:http://target-service:8083}
-  # 请求超时时间（毫秒）
-  request-timeout-ms: 30000
+  # 请求超时时间（毫秒）- 设置较短超时实现快速失败
+  request-timeout-ms: ${REQUEST_TIMEOUT_MS:5000}
 
 # 日志配置
 logging:

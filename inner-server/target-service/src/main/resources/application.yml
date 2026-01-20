@@ -7,10 +7,48 @@ spring:
 
 # Mock 服务配置
 mock:
-  # 模拟处理延迟（毫秒）- 用于模拟真实业务处理时间
-  delay-ms: ${MOCK_DELAY_MS:50}
-  # 模拟错误率（0-100）
+  # 默认处理延迟（毫秒）- 未配置的服务使用此值
+  delay-ms: ${MOCK_DELAY_MS:100}
+  # 默认错误率（0-100）
   error-rate: ${MOCK_ERROR_RATE:0}
+
+  # 各服务延迟配置（模拟多个快慢不同的服务）
+  services:
+    # 快速服务 - 10~30ms
+    fast:
+      min-ms: 10
+      max-ms: 30
+      error-rate: 0
+    # 普通服务 - 50~100ms
+    normal:
+      min-ms: 50
+      max-ms: 100
+      error-rate: 0
+    # 慢速服务 - 200~500ms
+    slow:
+      min-ms: 200
+      max-ms: 500
+      error-rate: 0
+    # 超慢服务 - 1000~3000ms
+    very-slow:
+      min-ms: 1000
+      max-ms: 3000
+      error-rate: 0
+    # 不稳定服务 - 50~200ms，10%错误率
+    unstable:
+      min-ms: 50
+      max-ms: 200
+      error-rate: 10
+    # 用户中心 - yhzx
+    yhzx:
+      min-ms: 30
+      max-ms: 80
+      error-rate: 0
+    # 账单中心 - zdzx
+    zdzx:
+      min-ms: 100
+      max-ms: 300
+      error-rate: 1
 
 # 日志配置
 logging:

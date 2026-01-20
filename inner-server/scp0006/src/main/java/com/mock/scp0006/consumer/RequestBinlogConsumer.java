@@ -8,14 +8,15 @@ import com.mock.scp0006.model.DebeziumMessage;
 import com.mock.scp0006.model.InnerRequest;
 import com.mock.scp0006.service.OuterDatabaseService;
 import com.mock.scp0006.service.TargetServiceClient;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
 
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 
 /**
  * 请求表 Binlog 消费者
@@ -28,44 +29,61 @@ import java.util.Map;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class RequestBinlogConsumer {
 
     private final TargetServiceClient targetServiceClient;
     private final OuterDatabaseService outerDatabaseService;
+    private final ExecutorService businessExecutor;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    public RequestBinlogConsumer(
+            TargetServiceClient targetServiceClient,
+            OuterDatabaseService outerDatabaseService,
+            @Qualifier("businessExecutor") ExecutorService businessExecutor) {
+        this.targetServiceClient = targetServiceClient;
+        this.outerDatabaseService = outerDatabaseService;
+        this.businessExecutor = businessExecutor;
+        log.info("RequestBinlogConsumer 初始化完成，使用共用业务线程池");
+    }
 
     /**
      * 消费请求表 Binlog 消息
      * 支持 Canal 和 Debezium 两种消息格式
+     *
+     * 优化：异步处理，使用共用线程池 + 超时控制实现快速失败
      *
      * @param record         Kafka 消息记录
      * @param acknowledgment 手动确认对象
      */
     @KafkaListener(topics = "${gateway.topic}", groupId = "${spring.kafka.consumer.group-id}")
     public void consume(ConsumerRecord<String, String> record, Acknowledgment acknowledgment) {
-        long startTime = System.currentTimeMillis();
-
         try {
             String message = record.value();
             log.debug("收到 Binlog 消息: partition={}, offset={}", record.partition(), record.offset());
 
-            // 检测消息格式并处理
-            if (isDebeziumMessage(message)) {
-                processDebeziumMessage(message);
-            } else {
-                processCanalMessage(message);
-            }
+            // 异步提交到共用线程池处理
+            businessExecutor.submit(() -> {
+                long startTime = System.currentTimeMillis();
+                try {
+                    if (isDebeziumMessage(message)) {
+                        processDebeziumMessage(message);
+                    } else {
+                        processCanalMessage(message);
+                    }
+                    long elapsed = System.currentTimeMillis() - startTime;
+                    log.debug("Binlog 消息处理完成, 耗时={}ms", elapsed);
+                } catch (Exception e) {
+                    log.error("处理 Binlog 消息失败: {}", e.getMessage(), e);
+                }
+            });
 
-            // 确认消息
+            // 立即确认消息（异步处理，不阻塞消费）
             acknowledgment.acknowledge();
 
-            long elapsed = System.currentTimeMillis() - startTime;
-            log.debug("Binlog 消息处理完成, 耗时={}ms", elapsed);
-
         } catch (Exception e) {
-            log.error("处理 Binlog 消息失败: {}", e.getMessage(), e);
-            // 不确认消息，让 Kafka 重新投递
+            log.error("解析 Binlog 消息失败: {}", e.getMessage(), e);
+            // 解析失败也确认，避免卡住
+            acknowledgment.acknowledge();
         }
     }
 

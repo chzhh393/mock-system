@@ -6,7 +6,8 @@
 set -e
 
 # 配置
-TARGET_URL="${TARGET_URL:-http://192.168.123.66:8080/inner/c1/yhzx}"
+# 注意：post.lua 会动态生成路径 /inner/c1/yhzx 和 /inner/c1/fast
+TARGET_URL="${TARGET_URL:-http://192.168.123.66:8080}"
 THREADS="${THREADS:-2}"
 CONNECTIONS="${CONNECTIONS:-10}"
 DURATION="${DURATION:-30s}"
@@ -29,11 +30,11 @@ if ! command -v wrk &> /dev/null; then
     exit 1
 fi
 
-# 先发送单个请求验证服务可用
+# 先发送单个请求验证服务可用（使用快服务验证，避免等待30s）
 echo "验证服务可用性..."
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$TARGET_URL" \
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "$TARGET_URL/inner/c1/fast" \
     -H "Content-Type: application/x-www-form-urlencoded" \
-    -d "code=yhzx&paramData={\"test\":\"warmup\"}" \
+    -d "code=fast&paramData={\"test\":\"warmup\"}" \
     --max-time 10 || echo "000")
 
 if [ "$HTTP_CODE" != "200" ]; then
