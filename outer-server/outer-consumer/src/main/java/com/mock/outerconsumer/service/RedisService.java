@@ -20,6 +20,7 @@ public class RedisService {
 
     private final StringRedisTemplate redisTemplate;
     private final ConsumerConfig consumerConfig;
+    private final StatsService statsService;
 
     /**
      * 写入响应结果到 Redis
@@ -34,8 +35,12 @@ public class RedisService {
         try {
             redisTemplate.opsForValue().set(key, responseData, Duration.ofSeconds(expireSeconds));
             log.info("流水号:{}, 响应结果已写入 Redis, key={}", requestId, key);
+            // 记录 Redis 写入成功
+            statsService.recordRedisWriteSuccess();
         } catch (Exception e) {
             log.error("流水号:{}, 写入 Redis 失败: {}", requestId, e.getMessage(), e);
+            // 记录 Redis 写入失败
+            statsService.recordRedisWriteFail();
             throw e;
         }
     }

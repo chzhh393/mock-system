@@ -21,6 +21,7 @@ import java.time.LocalDateTime;
 public class OuterDatabaseService {
 
     private final JdbcTemplate jdbcTemplate;
+    private final StatsService statsService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
@@ -51,11 +52,15 @@ public class OuterDatabaseService {
 
             if (rows > 0) {
                 log.info("流水号:{}, 响应已写入外网数据库, code={}", requestId, code);
+                // 记录 MySQL 写入成功
+                statsService.recordMysqlWriteSuccess();
             } else {
                 log.warn("流水号:{}, 写入外网数据库影响行数为0", requestId);
             }
         } catch (Exception e) {
             log.error("流水号:{}, 写入外网数据库失败: {}", requestId, e.getMessage(), e);
+            // 记录 MySQL 写入失败
+            statsService.recordMysqlWriteFail();
             throw e;
         }
     }

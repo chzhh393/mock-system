@@ -1,0 +1,11 @@
+com/mock/outerconsumer/service/StatsService.class
+com/mock/outerconsumer/model/DebeziumMessage$Source.class
+com/mock/outerconsumer/service/RedisService.class
+com/mock/outerconsumer/OuterConsumerApplication.class
+com/mock/outerconsumer/consumer/BinlogConsumer.class
+com/mock/outerconsumer/model/DebeziumMessage$Payload.class
+com/mock/outerconsumer/model/OuterResponse.class
+com/mock/outerconsumer/controller/StatsController.class
+com/mock/outerconsumer/model/DebeziumMessage.class
+com/mock/outerconsumer/config/ConsumerConfig.class
+com/mock/outerconsumer/model/CanalMessage.class

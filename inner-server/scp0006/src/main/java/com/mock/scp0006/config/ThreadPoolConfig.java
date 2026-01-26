@@ -17,18 +17,18 @@ public class ThreadPoolConfig {
 
     /**
      * 共用业务线程池
-     * - 核心线程数：20
-     * - 最大线程数：50
-     * - 队列：200
-     * - 拒绝策略：丢弃并记录日志（快速失败）
+     * - 核心线程数：100
+     * - 最大线程数：200
+     * - 队列：5000
+     * - 拒绝策略：CallerRunsPolicy（调用者线程执行，实现背压）
      */
     @Bean("businessExecutor")
     public ExecutorService businessExecutor() {
         ThreadPoolExecutor executor = new ThreadPoolExecutor(
-                20,                              // 核心线程数
-                50,                              // 最大线程数
+                100,                             // 核心线程数（增加到100）
+                200,                             // 最大线程数（增加到200）
                 60L, TimeUnit.SECONDS,           // 空闲线程存活时间
-                new LinkedBlockingQueue<>(200),  // 任务队列
+                new LinkedBlockingQueue<>(5000), // 任务队列（增加到5000）
                 new ThreadFactory() {
                     private int count = 0;
                     @Override
@@ -36,12 +36,9 @@ public class ThreadPoolConfig {
                         return new Thread(r, "business-" + (++count));
                     }
                 },
-                (r, executor1) -> {
-                    // 队列满时拒绝，快速失败
-                    log.warn("线程池已满，拒绝任务（快速失败）");
-                }
+                new ThreadPoolExecutor.CallerRunsPolicy() // 队列满时由调用者线程执行（实现背压，不丢弃任务）
         );
-        log.info("业务线程池初始化完成: core=20, max=50, queue=200");
+        log.info("业务线程池初始化完成: core=100, max=200, queue=5000, policy=CallerRunsPolicy");
         return executor;
     }
 }

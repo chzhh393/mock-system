@@ -1,0 +1,16 @@
+com/mock/scp0006/model/CanalMessage.class
+com/mock/scp0006/service/OuterDatabaseService.class
+com/mock/scp0006/service/StatsService.class
+com/mock/scp0006/Scp0006Application.class
+com/mock/scp0006/config/GatewayConfig.class
+com/mock/scp0006/controller/StressTestController.class
+com/mock/scp0006/model/DebeziumMessage.class
+com/mock/scp0006/config/RestTemplateConfig.class
+com/mock/scp0006/config/ThreadPoolConfig.class
+com/mock/scp0006/config/ThreadPoolConfig$1.class
+com/mock/scp0006/controller/StatsController.class
+com/mock/scp0006/model/InnerRequest.class
+com/mock/scp0006/service/TargetServiceClient.class
+com/mock/scp0006/model/DebeziumMessage$Payload.class
+com/mock/scp0006/model/DebeziumMessage$Source.class
+com/mock/scp0006/consumer/RequestBinlogConsumer.class

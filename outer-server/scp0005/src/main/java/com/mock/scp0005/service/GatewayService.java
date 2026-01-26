@@ -33,6 +33,7 @@ public class GatewayService {
     private final DatabaseClient databaseClient;
     private final ReactiveStringRedisTemplate redisTemplate;
     private final GatewayConfig gatewayConfig;
+    private final StatsService statsService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
@@ -67,8 +68,14 @@ public class GatewayService {
 
         // 3. 写入内网数据库请求表
         return insertInnerRequest(requestId, code, enrichedParamData, channelType, finalSerialNo, source, target)
-                .doOnSuccess(v -> log.info("流水号:{}, 请求已写入内网数据库", requestId))
-                .doOnError(e -> log.error("流水号:{}, 写入内网数据库失败: {}", requestId, e.getMessage()))
+                .doOnSuccess(v -> {
+                    log.info("流水号:{}, 请求已写入内网数据库", requestId);
+                    statsService.recordMysqlWriteSuccess();
+                })
+                .doOnError(e -> {
+                    log.error("流水号:{}, 写入内网数据库失败: {}", requestId, e.getMessage());
+                    statsService.recordMysqlWriteFail();
+                })
                 // 4. 轮询 Redis 等待结果
                 .then(pollRedisResult(requestId))
                 .doOnSuccess(result -> {
@@ -158,11 +165,15 @@ public class GatewayService {
                         .delayElements(Duration.ofMillis(intervalMs))
                         .take(timeoutMs / intervalMs))
                 .timeout(Duration.ofMillis(timeoutMs))
-                .switchIfEmpty(Mono.error(new RuntimeException("等待响应超时")))
+                .switchIfEmpty(Mono.defer(() -> {
+                    statsService.recordRedisReadTimeout();
+                    return Mono.error(new RuntimeException("等待响应超时"));
+                }))
                 .doOnSuccess(result -> {
                     // 获取结果后删除 Redis 中的数据
                     redisTemplate.delete(redisKey).subscribe();
                     log.debug("流水号:{}, 从 Redis 获取到结果", requestId);
+                    statsService.recordRedisReadSuccess();
                 });
     }
 }

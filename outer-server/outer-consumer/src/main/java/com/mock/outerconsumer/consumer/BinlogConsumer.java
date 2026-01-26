@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.mock.outerconsumer.model.CanalMessage;
 import com.mock.outerconsumer.model.DebeziumMessage;
 import com.mock.outerconsumer.service.RedisService;
+import com.mock.outerconsumer.service.StatsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -26,6 +27,7 @@ import java.util.Map;
 public class BinlogConsumer {
 
     private final RedisService redisService;
+    private final StatsService statsService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
@@ -42,6 +44,9 @@ public class BinlogConsumer {
         try {
             String message = record.value();
             log.debug("收到 Binlog 消息: partition={}, offset={}", record.partition(), record.offset());
+
+            // 记录 Kafka 消费
+            statsService.recordKafkaConsumed();
 
             // 检测消息格式并处理
             if (isDebeziumMessage(message)) {

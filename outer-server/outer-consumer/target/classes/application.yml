@@ -1,0 +1,61 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: outer-consumer
+
+  # Kafka 配置
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP:kafka:9092}
+    consumer:
+      group-id: outer-consumer-group
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      # 手动提交 offset
+      enable-auto-commit: false
+    listener:
+      # 手动确认模式
+      ack-mode: manual_immediate
+      concurrency: 3
+
+  # Redis 配置
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 20
+          max-idle: 10
+          min-idle: 5
+
+# 消费者配置
+consumer:
+  # Kafka Topic - Canal 推送的响应表 Binlog
+  topic: ${KAFKA_TOPIC:outer_response_binlog}
+  # Redis key 前缀 - 与 scp0005 保持一致
+  result-key-prefix: ${RESULT_KEY_PREFIX:gateway:result:}
+  # Redis key 过期时间（秒）
+  result-expire-seconds: 300
+
+# 日志配置
+logging:
+  level:
+    root: INFO
+    com.mock.outerconsumer: INFO
+    org.springframework.kafka: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+# Actuator
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always

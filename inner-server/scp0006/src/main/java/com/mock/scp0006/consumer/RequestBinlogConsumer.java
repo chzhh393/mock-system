@@ -7,6 +7,7 @@ import com.mock.scp0006.model.CanalMessage;
 import com.mock.scp0006.model.DebeziumMessage;
 import com.mock.scp0006.model.InnerRequest;
 import com.mock.scp0006.service.OuterDatabaseService;
+import com.mock.scp0006.service.StatsService;
 import com.mock.scp0006.service.TargetServiceClient;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -33,15 +34,18 @@ public class RequestBinlogConsumer {
 
     private final TargetServiceClient targetServiceClient;
     private final OuterDatabaseService outerDatabaseService;
+    private final StatsService statsService;
     private final ExecutorService businessExecutor;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public RequestBinlogConsumer(
             TargetServiceClient targetServiceClient,
             OuterDatabaseService outerDatabaseService,
+            StatsService statsService,
             @Qualifier("businessExecutor") ExecutorService businessExecutor) {
         this.targetServiceClient = targetServiceClient;
         this.outerDatabaseService = outerDatabaseService;
+        this.statsService = statsService;
         this.businessExecutor = businessExecutor;
         log.info("RequestBinlogConsumer 初始化完成，使用共用业务线程池");
     }
@@ -60,6 +64,9 @@ public class RequestBinlogConsumer {
         try {
             String message = record.value();
             log.debug("收到 Binlog 消息: partition={}, offset={}", record.partition(), record.offset());
+
+            // 记录 Kafka 消费
+            statsService.recordKafkaConsumed();
 
             // 异步提交到共用线程池处理
             businessExecutor.submit(() -> {

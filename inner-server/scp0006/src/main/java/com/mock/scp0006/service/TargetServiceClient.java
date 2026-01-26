@@ -21,6 +21,7 @@ public class TargetServiceClient {
 
     private final RestTemplate restTemplate;
     private final GatewayConfig gatewayConfig;
+    private final StatsService statsService;
 
     /**
      * 调用目标服务
@@ -61,10 +62,15 @@ public class TargetServiceClient {
             log.info("流水号:{}, 目标服务响应成功, status={}, 耗时={}ms",
                     requestId, response.getStatusCode(), elapsed);
 
+            // 记录目标服务调用成功
+            statsService.recordTargetInvokeSuccess();
+
             return responseBody != null ? responseBody : buildSuccessResponse();
 
         } catch (RestClientException e) {
             log.error("流水号:{}, 调用目标服务失败: {}", requestId, e.getMessage());
+            // 记录目标服务调用失败
+            statsService.recordTargetInvokeFail();
             return buildErrorResponse(e.getMessage());
         }
     }

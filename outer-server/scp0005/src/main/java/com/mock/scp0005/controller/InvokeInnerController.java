@@ -2,6 +2,7 @@ package com.mock.scp0005.controller;
 
 import com.mock.scp0005.model.RequestDo;
 import com.mock.scp0005.service.GatewayService;
+import com.mock.scp0005.service.StatsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -27,6 +28,7 @@ import reactor.core.publisher.Mono;
 public class InvokeInnerController {
 
     private final GatewayService gatewayService;
+    private final StatsService statsService;
 
     /**
      * 用户中心外穿内调用接口
@@ -64,6 +66,9 @@ public class InvokeInnerController {
      * 统一处理逻辑
      */
     private Mono<ResponseEntity<String>> invokeInner(String channel, RequestDo requestDo) {
+        // 记录请求接收
+        statsService.recordRequestReceived();
+
         return gatewayService.requestInvoke(channel, requestDo.getCode(), requestDo.getParamData())
                 .map(ResponseEntity::ok)
                 .onErrorResume(e -> {

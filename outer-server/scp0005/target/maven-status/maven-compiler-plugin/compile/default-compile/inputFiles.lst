@@ -1,6 +1,8 @@
 /Users/shulie/Desktop/SynologyDrive/个人/cursor/IncidentReview/guowang/innergateway/mock-system/outer-server/scp0005/src/main/java/com/mock/scp0005/model/RequestDo.java
 /Users/shulie/Desktop/SynologyDrive/个人/cursor/IncidentReview/guowang/innergateway/mock-system/outer-server/scp0005/src/main/java/com/mock/scp0005/service/GatewayService.java
 /Users/shulie/Desktop/SynologyDrive/个人/cursor/IncidentReview/guowang/innergateway/mock-system/outer-server/scp0005/src/main/java/com/mock/scp0005/Scp0005Application.java
+/Users/shulie/Desktop/SynologyDrive/个人/cursor/IncidentReview/guowang/innergateway/mock-system/outer-server/scp0005/src/main/java/com/mock/scp0005/service/StatsService.java
+/Users/shulie/Desktop/SynologyDrive/个人/cursor/IncidentReview/guowang/innergateway/mock-system/outer-server/scp0005/src/main/java/com/mock/scp0005/controller/StatsController.java
 /Users/shulie/Desktop/SynologyDrive/个人/cursor/IncidentReview/guowang/innergateway/mock-system/outer-server/scp0005/src/main/java/com/mock/scp0005/model/InnerRequest.java
 /Users/shulie/Desktop/SynologyDrive/个人/cursor/IncidentReview/guowang/innergateway/mock-system/outer-server/scp0005/src/main/java/com/mock/scp0005/config/GatewayConfig.java
 /Users/shulie/Desktop/SynologyDrive/个人/cursor/IncidentReview/guowang/innergateway/mock-system/outer-server/scp0005/src/main/java/com/mock/scp0005/controller/InvokeInnerController.java

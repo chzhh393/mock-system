@@ -34,13 +34,17 @@ gateway:
   poll-interval-ms: 100
   # Redis 结果 key 前缀
   result-key-prefix: "gateway:result:"
+  # 是否启用异步 Pub/Sub 模式（true=Pub/Sub订阅, false=轮询等待）
+  async-mode: false
+  # Redis Pub/Sub Channel 前缀
+  channel-prefix: "response:"
 
 # 日志配置
 logging:
   level:
     root: INFO
-    com.mock.scp0005: DEBUG
-    org.springframework.r2dbc: DEBUG
+    com.mock.scp0005: INFO
+    org.springframework.r2dbc: WARN
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
 
